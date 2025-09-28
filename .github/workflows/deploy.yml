@@ -1,0 +1,111 @@
+name: Build and Deploy sync to Cloud Run Job
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  
+  build:
+    name: Build & push Docker image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        id: setup-buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Golang Build Cache for Docker
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: golang-build-cache
+          key: ${{ runner.os }}-go-build-cache-${{ hashFiles('**/go.sum') }}
+
+      - name: Inject Golang Build Cache to BuildKit
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          builder: ${{ steps.setup-buildx.outputs.name }}
+          cache-dir: golang-build-cache
+          dockerfile: Dockerfile
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          target: sync
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ghcr.io/${{ github.repository }}/sync:${{ github.sha }}
+
+  infra:
+    name: Setup Infrastructure
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.GCP_WIF_POOL_ID }}/providers/${{ vars.GCP_WIF_PROVIDER_ID }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "${{ vars.TERRAFORM_VERSION }}"
+
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init -no-color
+
+      - name: Terraform Format
+        working-directory: infra
+        run: terraform fmt -no-color -check
+
+      - name: Terraform Validate
+        working-directory: infra
+        run: terraform validate -no-color
+
+      - name: Terraform Apply
+        id: apply
+        working-directory: infra
+        env:
+          TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.GCP_DEPLOYMENT_REGION }}
+          TF_VAR_sync_image_tag: ${{ github.sha }}
+          TF_VAR_sync_secrets_version: ${{ secrets.SYNC_SECRETS_VERSION }}
+          TF_VAR_sync_source_username: ${{ secrets.SYNC_SOURCE_USERNAME }}
+          TF_VAR_sync_source_password: ${{ secrets.SYNC_SOURCE_PASSWORD }}
+          TF_VAR_sync_target_username: ${{ secrets.SYNC_TARGET_USERNAME }}
+          TF_VAR_sync_target_password: ${{ secrets.SYNC_TARGET_PASSWORD }}
+        run: terraform apply -no-color -auto-approve -input=false
