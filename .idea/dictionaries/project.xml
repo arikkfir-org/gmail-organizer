@@ -2,6 +2,8 @@
   <dictionary name="project">
     <words>
       <w>buildx</w>
+      <w>cloudresourcemanager</w>
+      <w>iamcredentials</w>
     </words>
   </dictionary>
 </component>

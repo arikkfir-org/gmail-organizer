@@ -1,4 +1,4 @@
-name: Build and Deploy sync to Cloud Run Job
+name: Build and Deploy to Cloud Run
 
 on:
   push:
@@ -8,11 +8,15 @@ on:
 jobs:
   
   build:
-    name: Build & push Docker image
+    name: Build & push Docker images
     runs-on: ubuntu-22.04
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [ dispatcher, worker ]
     steps:
 
       - name: Checkout
@@ -32,30 +36,16 @@ jobs:
         id: setup-buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Golang Build Cache for Docker
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: golang-build-cache
-          key: ${{ runner.os }}-go-build-cache-${{ hashFiles('**/go.sum') }}
-
-      - name: Inject Golang Build Cache to BuildKit
-        uses: reproducible-containers/buildkit-cache-dance@v3
-        with:
-          builder: ${{ steps.setup-buildx.outputs.name }}
-          cache-dir: golang-build-cache
-          dockerfile: Dockerfile
-          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
-
-      - name: Build and push
+      - name: Build and push worker
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.target }}.Dockerfile
           push: true
-          target: sync
+          target: ${{ matrix.target }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: ghcr.io/${{ github.repository }}/sync:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}/${{ matrix.target }}:${{ github.sha }}
 
   infra:
     name: Setup Infrastructure
@@ -74,13 +64,14 @@ jobs:
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.GCP_WIF_POOL_ID }}/providers/${{ vars.GCP_WIF_PROVIDER_ID }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Setup Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: "${{ vars.TERRAFORM_VERSION }}"
 
@@ -102,7 +93,7 @@ jobs:
         env:
           TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
           TF_VAR_region: ${{ vars.GCP_DEPLOYMENT_REGION }}
-          TF_VAR_sync_image_tag: ${{ github.sha }}
+          TF_VAR_image_tag: ${{ github.sha }}
           TF_VAR_sync_secrets_version: ${{ secrets.SYNC_SECRETS_VERSION }}
           TF_VAR_sync_source_username: ${{ secrets.SYNC_SOURCE_USERNAME }}
           TF_VAR_sync_source_password: ${{ secrets.SYNC_SOURCE_PASSWORD }}

@@ -25,7 +25,7 @@ func Dial(username, password string) (*client.Client, func(), error) {
 	cleanup := func() {
 		err := c.Logout()
 		if err != nil {
-			slog.Warn("Failed to logout from IMAP server", "error", err)
+			slog.Warn("Failed to logout from IMAP server", "err", err)
 		}
 	}
 

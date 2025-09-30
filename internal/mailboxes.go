@@ -13,44 +13,34 @@ type MailboxInfo struct {
 	MessageCount uint32
 }
 
-func FetchMailboxNames(c *client.Client) ([]string, error) {
-	slog.Info("Listing mailboxes...")
-	mailboxes := make(chan *imap.MailboxInfo, 10)
-	done := make(chan error, 1)
-	var names []string
-	go func() {
-		done <- c.List("", "*", mailboxes)
-	}()
-	for m := range mailboxes {
-		names = append(names, m.Name)
-	}
-	if err := <-done; err != nil {
-		return nil, fmt.Errorf("failed to list mailboxes: %w", err)
-	}
-	return names, nil
-}
-
 func FetchMailboxes(c *client.Client) ([]MailboxInfo, error) {
-	names, err := FetchMailboxNames(c)
-	if err != nil {
-		return nil, err
-	}
+	imapMailBoxes := make(chan *imap.MailboxInfo, 100)
+	done := make(chan error, 1)
+	go func() {
+		done <- c.List("", "*", imapMailBoxes)
+	}()
 
-	slog.Info("Fetching mailbox sizes...")
 	var mailboxInfos []MailboxInfo
-	for _, mailboxName := range names {
+	for m := range imapMailBoxes {
 		// "[Gmail]" is a special container that can't be selected, but also can't contain messages so its safe to skip
-		if mailboxName != "[Gmail]" {
+		if m.Name == "[Gmail]" {
+			slog.Info("Skipping special mailbox", "name", m.Name)
+		} else {
 			// Check source mailbox
-			mbox, err := c.Select(mailboxName, true)
+			mbox, err := c.Select(m.Name, true)
 			if err != nil {
-				return nil, fmt.Errorf("failed to select mailbox '%s': %w", mailboxName, err)
+				return nil, fmt.Errorf("failed to select mailbox '%s': %w", m.Name, err)
 			}
 			mailboxInfos = append(mailboxInfos, MailboxInfo{
-				Name:         mailboxName,
+				Name:         m.Name,
 				MessageCount: mbox.Messages,
 			})
+			slog.Info("Discovered mailbox", "name", m.Name, "messageCount", mbox.Messages)
 		}
+	}
+
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("failed to fetch mailboxes: %w", err)
 	}
 
 	return mailboxInfos, nil

@@ -37,7 +37,7 @@ variable "sync_target_password" {
   sensitive   = true
 }
 
-variable "sync_image_tag" {
-  description = "The tag of the sync image to run."
+variable "image_tag" {
+  description = "The tag of the container images that will run."
   type        = string
 }
