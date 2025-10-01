@@ -140,7 +140,7 @@ func runJob() int {
 	mailboxesWG := sync.WaitGroup{}
 	mailboxesWG.Go(func() {
 		slog.Info("Listing source mailboxes...")
-		mailboxes, err := internal.FetchMailboxes(src)
+		mailboxes, err := internal.FetchMailboxes(ctx, src)
 		if err != nil {
 			slog.Error("Failed to fetch source mailboxes", "err", err)
 		} else {
@@ -149,7 +149,7 @@ func runJob() int {
 	})
 	mailboxesWG.Go(func() {
 		slog.Info("Listing target mailboxes...")
-		mailboxes, err := internal.FetchMailboxes(dst)
+		mailboxes, err := internal.FetchMailboxes(ctx, dst)
 		if err != nil {
 			slog.Error("Failed to fetch target mailboxes", "err", err)
 		} else {
