@@ -174,6 +174,12 @@ func runJob() int {
 	}
 
 	// Collect message chunks from all mailboxes (flattened) and store them in Firestore
+	syncJobDocName := fmt.Sprintf("syncJobs/%s", cfg.syncJobName)
+	if _, err := firestoreClient.Doc(syncJobDocName).Delete(ctx); err != nil {
+		slog.Error("Failed deleting sync job document", "doc", syncJobDocName, "err", err)
+		return 1
+	}
+
 	var chunkIndex int
 	for mailBoxName, existsInTarget := range mailboxes {
 		slog.Info("Identifying messages that need to be synced to target", "mailbox", mailBoxName)
