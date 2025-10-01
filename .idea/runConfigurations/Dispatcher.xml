@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Sync" type="GoApplicationRunConfiguration" factoryName="Go Application">
+  <configuration default="false" name="Dispatcher" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="gmail-organizer" />
     <working_directory value="$PROJECT_DIR$" />
     <EXTENSION ID="net.ashald.envfile">
@@ -14,9 +14,9 @@
       </ENTRIES>
     </EXTENSION>
     <kind value="PACKAGE" />
-    <package value="gmail-organizer/cli" />
+    <package value="gmail-organizer/cmd/dispatcher" />
     <directory value="$PROJECT_DIR$" />
-    <filePath value="$PROJECT_DIR$/sync/main.go" />
+    <filePath value="$PROJECT_DIR$" />
     <method v="2" />
   </configuration>
 </component>
