@@ -7,6 +7,7 @@ resource "google_project_iam_member" "worker" {
   for_each = toset([
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
+    "roles/datastore.user",
   ])
   project = var.project_id
   role    = each.key
@@ -29,6 +30,7 @@ resource "google_cloud_run_v2_job" "worker" {
     google_secret_manager_secret.sync,
     google_secret_manager_secret_iam_member.sync_dispatcher_access,
     google_secret_manager_secret_version.sync_version,
+    google_project_iam_member.worker,
   ]
   name                = "worker"
   location            = var.region
