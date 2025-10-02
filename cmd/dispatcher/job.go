@@ -34,15 +34,15 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 	}
 
 	// Gmail account username
-	accountUsername := os.Getenv("ACCOUNT_USERNAME")
+	accountUsername := os.Getenv("SOURCE_ACCOUNT_USERNAME")
 	if accountUsername == "" {
-		return nil, fmt.Errorf("ACCOUNT_USERNAME environment variable is required")
+		return nil, fmt.Errorf("SOURCE_ACCOUNT_USERNAME environment variable is required")
 	}
 
 	// Gmail account password
-	accountPassword := os.Getenv("ACCOUNT_PASSWORD")
+	accountPassword := os.Getenv("SOURCE_ACCOUNT_PASSWORD")
 	if accountPassword == "" {
-		return nil, fmt.Errorf("ACCOUNT_PASSWORD environment variable is required")
+		return nil, fmt.Errorf("SOURCE_ACCOUNT_PASSWORD environment variable is required")
 	}
 
 	// Determine GCP project ID
