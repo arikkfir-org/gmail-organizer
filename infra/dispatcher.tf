@@ -40,6 +40,7 @@ resource "google_cloud_run_v2_job" "dispatcher" {
     template {
       service_account = google_service_account.dispatcher.email
       timeout         = "${60 * 60 * 4}s"
+      max_retries     = 3
       containers {
         image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/dispatcher:${var.image_tag}"
         resources {
