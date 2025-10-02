@@ -14,6 +14,12 @@ resource "google_project_iam_member" "dispatcher" {
   member  = google_service_account.dispatcher.member
 }
 
+resource "google_service_account_iam_member" "dispatcher_actAs_self" {
+  service_account_id = google_service_account.dispatcher.id
+  role               = "roles/iam.serviceAccountUser"
+  member             = google_service_account.dispatcher.member
+}
+
 resource "google_service_account_iam_member" "gha_actAs_dispatcher" {
   service_account_id = google_service_account.dispatcher.id
   role               = "roles/iam.serviceAccountUser"
