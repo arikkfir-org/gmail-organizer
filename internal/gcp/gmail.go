@@ -79,7 +79,7 @@ func (g *Gmail) FetchByUIDs(uids []uint32, items ...imap.FetchItem) ([]*imap.Mes
 	if err := g.c.UidFetch(seqSet, items, messagesCh); err != nil {
 		return nil, fmt.Errorf("failed to fetch message IDs: %w", err)
 	}
-	messages := make([]*imap.Message, len(uids))
+	messages := make([]*imap.Message, 0, len(uids))
 	for msg := range messagesCh {
 		messages = append(messages, msg)
 	}
