@@ -3,17 +3,11 @@ resource "google_service_account" "dispatcher" {
   display_name = "Runs the dispatcher Cloud Run service."
 }
 
-resource "google_project_iam_member" "gcp_pubsub_publish" {
-  project = var.project_id
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-}
-
 resource "google_project_iam_member" "dispatcher" {
   for_each = toset([
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
-    "roles/datastore.user",
+    "roles/pubsub.admin",
   ])
   project = var.project_id
   role    = each.key
