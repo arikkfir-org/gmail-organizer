@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/pubsub"
 	"github.com/arikkfir-org/gmail-organizer/internal/gcp"
 	"github.com/emersion/go-imap"
-	"golang.org/x/oauth2/google"
 )
 
 type Message struct {
@@ -50,14 +49,9 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	}
 
 	// Determine GCP project ID
-	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	if projectID == "" {
-		creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
-		if err != nil {
-			return nil, fmt.Errorf("failed inferring current GCP project: %w", err)
-		} else if creds.ProjectID == "" {
-			return nil, fmt.Errorf("failed inferring current GCP project: project ID in ADC is empty")
-		}
+	projectID, err := gcp.GetProjectId(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine current GCP project: %w", err)
 	}
 
 	// Create a Pub/Sub client
