@@ -3,6 +3,12 @@ resource "google_service_account" "dispatcher" {
   display_name = "Runs the dispatcher Cloud Run service."
 }
 
+resource "google_project_iam_member" "gcp_pubsub_publish" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
 resource "google_project_iam_member" "dispatcher" {
   for_each = toset([
     "roles/logging.logWriter",
@@ -22,15 +28,15 @@ resource "google_service_account_iam_member" "gha_actAs_dispatcher" {
 
 resource "google_cloud_run_v2_job" "dispatcher" {
   depends_on = [
+    google_project_service.pubsub,
+    google_project_iam_member.gcp_pubsub_publish,
     google_project_service.run,
     google_artifact_registry_repository_iam_member.dispatcher,
     google_project_iam_member.dispatcher,
     google_service_account_iam_member.gha_actAs_dispatcher,
-    google_firestore_database.default,
     google_secret_manager_secret.sync,
     google_secret_manager_secret_iam_member.sync_dispatcher_access,
     google_secret_manager_secret_version.sync_version,
-    google_project_iam_member.dispatcher,
   ]
   name                = "dispatcher"
   location            = var.region
@@ -39,7 +45,7 @@ resource "google_cloud_run_v2_job" "dispatcher" {
   template {
     template {
       service_account = google_service_account.dispatcher.email
-      timeout         = "${60 * 60 * 2}s"
+      timeout         = "${60 * 60 * 4}s"
       containers {
         image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/dispatcher:${var.image_tag}"
         resources {
@@ -49,7 +55,11 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           }
         }
         env {
-          name = "SOURCE_USERNAME"
+          name  = "PROCESSOR_ENDPOINT"
+          value = google_cloud_run_v2_service.worker.uri
+        }
+        env {
+          name = "ACCOUNT_USERNAME"
           value_source {
             secret_key_ref {
               secret  = "sync_source_username"
@@ -58,7 +68,7 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           }
         }
         env {
-          name = "SOURCE_PASSWORD"
+          name = "ACCOUNT_PASSWORD"
           value_source {
             secret_key_ref {
               secret  = "sync_source_password"
@@ -67,38 +77,8 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           }
         }
         env {
-          name = "TARGET_USERNAME"
-          value_source {
-            secret_key_ref {
-              secret  = "sync_target_username"
-              version = "latest"
-            }
-          }
-        }
-        env {
-          name = "TARGET_PASSWORD"
-          value_source {
-            secret_key_ref {
-              secret  = "sync_target_password"
-              version = "latest"
-            }
-          }
-        }
-        env {
           name  = "JSON_LOGGING"
           value = "true"
-        }
-        env {
-          name  = "GCP_PROJECT_ID"
-          value = var.project_id
-        }
-        env {
-          name  = "WORKER_JOB_NAME"
-          value = google_cloud_run_v2_job.worker.name
-        }
-        env {
-          name  = "WORKER_JOB_REGION"
-          value = var.region
         }
       }
     }

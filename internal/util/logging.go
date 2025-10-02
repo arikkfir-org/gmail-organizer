@@ -14,6 +14,7 @@ func ConfigureLogging(jsonLogging bool) {
 			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				AddSource: true,
 				ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+					// TODO: we can catch error attributes, check if the error carries metadata, and return a complex Attr (if it's even possible)
 					if a.Key == slog.TimeKey {
 						a.Key = "timestamp"
 					} else if a.Key == slog.LevelKey {

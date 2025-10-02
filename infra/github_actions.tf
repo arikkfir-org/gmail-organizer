@@ -3,18 +3,6 @@ resource "google_service_account" "gha" {
   display_name = "Performs actions in the project from GitHub Actions workflows."
 }
 
-resource "google_project_iam_member" "gha_firestore_owner" {
-  depends_on = [
-    google_project_service.cloudresourcemanager,
-    google_project_service.firestore,
-    google_project_service.iam,
-    google_project_service.iamcredentials,
-  ]
-  project = var.project_id
-  role    = "roles/datastore.owner"
-  member  = google_service_account.gha.member
-}
-
 resource "google_project_iam_member" "gha_run_admin" {
   project = var.project_id
   role    = "roles/run.admin"

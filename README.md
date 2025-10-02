@@ -1,97 +1,124 @@
 # Gmail Organizer
 
-Gmail Organizer is a command-line tool written in Go for synchronizing emails from a source Gmail account to a target
-Gmail account. It uses the IMAP protocol to ensure that all mailboxes and messages are replicated accurately.
+Gmail Organizer is a distributed, cloud-native application for synchronizing emails from a source Gmail account to a
+target Gmail account. It is designed to be deployed on Google Cloud Platform and leverages a dispatcher/worker
+architecture to handle large volumes of emails efficiently.
 
-The tool is designed to be run either locally for manual syncs or deployed as a scheduled Cloud Run Job on Google Cloud
-Platform for automated, continuous synchronization.
+## Table of Contents
+
+- [Project Overview](#project-overview)
+    - [High-level Architecture](#high-level-architecture)
+- [Cloud Infrastructure](#cloud-infrastructure)
+    - [IaC Overview](#iac-overview)
+- [Implementation Details](#implementation-details)
+- [Local Development](#local-development)
+- [CI/CD](#cicd)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Project Overview
 
-The primary function of this tool is to perform a one-way sync of mailboxes and emails. It achieves this by:
+The application is composed of two main Go-based components: a **dispatcher** and a **worker**.
 
-1. Connecting to both the source and target Gmail accounts via IMAP.
-2. Listing all mailboxes (labels) in the source account.
-3. Ensuring all source mailboxes exist in the target account, creating them if necessary.
-4. Iterating through each mailbox and identifying messages present in the source but not in the target (by comparing
-   `Message-Id`).
-5. Copying the missing messages from the source to the target account, preserving flags and dates.
+1. **Dispatcher**: This is a Cloud Run Job responsible for initiating the synchronization process. It connects to the
+   source Gmail account, lists all messages, chunks them into manageable batches, and publishes them as messages to a
+   Pub/Sub topic.
 
-## Installation
+2. **Worker**: This is a Cloud Run Service that processes messages from the Pub/Sub subscription. Each instance of the
+   worker is responsible for processing a single message from the source account, fetching it, and copying it to the
+   target account if it doesn't already exist.
 
-You can install and run the tool in several ways.
+This architecture allows for parallel processing of messages, making the synchronization process fast, scalable, and
+resilient.
 
-### From Source
+### High-level Architecture
 
-Ensure you have Go installed (version 1.21 or newer).
-
-```sh
-go install github.com/arikkfir-org/gmail-organizer/cli@latest
+```
+┌───────────────────┐      ┌───────────────────┐      ┌───────────────────┐
+│                   │      │                   │      │                   │
+│  Source Gmail     ├─────►│    Dispatcher     ├─────►│      Pub/Sub      │
+│   (IMAP)          │      │  (Cloud Run Job)  │      │                   │
+│                   │      │                   │      │                   │
+└───────────────────┘      └───────────────────┘      └───────────────────┘
+        ▲                                                 │
+        │                                                 ▼
+        │                                     ┌───────────────────┐
+        │                                     │                   │
+        └────────────────────────────────────►│      Worker       │
+                                              │ (Cloud Run Service) │
+                                              │                   │
+                                              └───────────────────┘
+                                                          │
+                                                          ▼
+                                              ┌───────────────────┐
+                                              │                   │
+                                              │    Target Gmail   │
+                                              │      (IMAP)       │
+                                              │                   │
+                                              └───────────────────┘
 ```
 
-### With Docker
+## Cloud Infrastructure
 
-You can build a Docker image from the provided Dockerfile.
+The entire infrastructure for this application is defined as code using Terraform.
 
-```sh
-docker build -t gmail-organizer .
-```
+### IaC Overview
 
-## Usage
+The Terraform setup in the `/infra` directory provisions the following Google Cloud resources:
 
-The tool is executed as a single command with flags or environment variables for configuration.
+* **Cloud Run**: A Job for the `dispatcher` and a Service for the `worker`.
+* **Pub/Sub**: A topic for messages and a corresponding subscription to trigger the worker.
+* **Secret Manager**: Securely stores Gmail App Passwords.
+* **Artifact Registry**: A pull-through cache for Docker images from `ghcr.io`.
+* **IAM**: Service Accounts with fine-grained permissions for each component.
+* **Workload Identity Federation**: To securely authenticate GitHub Actions with Google Cloud for CI/CD.
 
-**Important:** You must use a [Google Account App Password](https://support.google.com/accounts/answer/185833) for the
-password fields, not your regular account password.
+To deploy the infrastructure, you will need to:
 
-### Example
+1. Configure the variables in `infra/variables.tf`.
+2. Set up the Terraform GCS backend.
+3. Run `terraform init` and `terraform apply`.
 
-```sh
-export SOURCE_USERNAME="source@gmail.com"
-export SOURCE_PASSWORD="your-source-app-password"
-export TARGET_USERNAME="target@gmail.com"
-export TARGET_PASSWORD="your-target-app-password"
+## Implementation Details
 
-gmail-organizer --batch-size=100
-```
+* **Go**: Both the dispatcher and worker are written in Go.
+* **IMAP**: The application uses the `go-imap` library to communicate with Gmail's IMAP servers.
+* **Docker**: The services are containerized using Dockerfiles provided (`dispatcher.Dockerfile`, `worker.Dockerfile`).
+  The base images are distroless for a smaller footprint and improved security.
 
-To perform a dry run without making any changes:
+**Note:** You must use a [Google Account App Password](https://support.google.com/accounts/answer/185833) for
+authentication, not your regular account password.
 
-```sh
-gmail-organizer --dry-run
-```
+## Local Development
 
-## Configuration
+To set up a local working environment, you will need:
 
-Configuration is managed via command-line flags, which can also be provided as environment variables.
+1. **Go 1.25+**: Install the Go programming language.
+2. **Docker**: For building and running containers.
+3. **gcloud CLI**: To authenticate with Google Cloud.
+4. **Terraform**: For managing infrastructure.
 
-| Flag                | Environment Variable | Description                                   | Default | Required |
-|---------------------|----------------------|-----------------------------------------------|---------|----------|
-| `--source-username` | `SOURCE_USERNAME`    | Source Gmail username (email address).        |         | Yes      |
-| `--source-password` | `SOURCE_PASSWORD`    | Source Gmail App Password.                    |         | Yes      |
-| `--target-username` | `TARGET_USERNAME`    | Target Gmail username (email address).        |         | Yes      |
-| `--target-password` | `TARGET_PASSWORD`    | Target Gmail App Password.                    |         | Yes      |
-| `--batch-size`      | `BATCH_SIZE`         | Number of messages to process in each batch.  | `5000`  | No       |
-| `--dry-run`         | `DRY_RUN`            | If true, logs actions without executing them. | `false` | No       |
-| `--json-logging`    | `JSON_LOGGING`       | If true, outputs logs in JSON format.         | `false` | No       |
+**Setup Steps:**
 
-## Deployment on GCP
+1. Clone the repository.
+2. Authenticate with GCP: `gcloud auth application-default login`.
+3. Set up the required environment variables for the dispatcher and worker. It is recommended to use a `.env` file for
+   this.
+4. Run the services locally using `go run ./cmd/dispatcher` or `go run ./cmd/worker`.
 
-The included `/infra` directory contains Terraform configurations to deploy this tool as a scheduled Cloud Run Job on
-GCP. See the variables in `infra/variables.tf` for deployment configuration.
+## CI/CD
+
+This project uses GitHub Actions for its CI/CD pipeline, defined in the `.github/workflows` directory.
+
+* **`deploy.yml`**: This workflow triggers on pushes to the `main` branch. It builds and pushes the Docker images to
+  GHCR, and then applies the Terraform configuration to deploy the services to Cloud Run.
+* **Gemini Workflows**: The `gemini-*.yml` files integrate Google's Gemini AI for automated code reviews, issue triage,
+  and other development tasks.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a pull request.
-
-1. Fork the repository.
-2. Create a new branch (`git checkout -b feature/your-feature`).
-3. Make your changes.
-4. Commit your changes (`git commit -am 'Add some feature'`).
-5. Push to the branch (`git push origin feature/your-feature`).
-6. Create a new Pull Request.
-
-Please ensure your code is formatted with `go fmt` before submitting.
+Contributions are welcome! We follow standard open-source practices. Please read our [CONTRIBUTING.md](CONTRIBUTING.md)
+file for details on how to contribute, including our code of conduct and commit message conventions.
 
 ## License
 
