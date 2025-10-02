@@ -44,8 +44,10 @@ func (g *Gmail) Connect(password string) error {
 }
 
 func (g *Gmail) Close() {
-	if err := g.c.Logout(); err != nil {
-		slog.Warn("Failed to logout from Gmail IMAP server", "err", err, "email", g.account)
+	if g.c != nil {
+		if err := g.c.Logout(); err != nil {
+			slog.Warn("Failed to logout from Gmail IMAP server", "err", err, "email", g.account)
+		}
 	}
 }
 
