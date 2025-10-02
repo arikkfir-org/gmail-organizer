@@ -32,6 +32,7 @@ resource "google_cloud_run_v2_service" "worker" {
   name                = "worker"
   location            = var.region
   deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
   template {
     service_account = google_service_account.worker.email
