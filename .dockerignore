@@ -1,0 +1,8 @@
+.github
+.idea
+.infra
+.aiignore
+.env
+*.md
+*.Dockerfile
+LICENSE
