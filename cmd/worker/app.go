@@ -50,15 +50,18 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	}
 
 	// Determine GCP project ID
-	creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
-	if err != nil {
-		return nil, fmt.Errorf("failed inferring current GCP project: %w", err)
-	} else if creds.ProjectID == "" {
-		return nil, fmt.Errorf("failed inferring current GCP project: project ID in ADC is empty")
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
+		if err != nil {
+			return nil, fmt.Errorf("failed inferring current GCP project: %w", err)
+		} else if creds.ProjectID == "" {
+			return nil, fmt.Errorf("failed inferring current GCP project: project ID in ADC is empty")
+		}
 	}
 
 	// Create a Pub/Sub client
-	pubSubClient, err := pubsub.NewClient(ctx, creds.ProjectID)
+	pubSubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Pub/Sub client: %w", err)
 	}
