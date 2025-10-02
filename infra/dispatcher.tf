@@ -54,7 +54,7 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           value = google_cloud_run_v2_service.worker.uri
         }
         env {
-          name = "ACCOUNT_ACCOUNT_USERNAME"
+          name = "SOURCE_ACCOUNT_USERNAME"
           value_source {
             secret_key_ref {
               secret  = "sync_source_username"
@@ -63,7 +63,7 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           }
         }
         env {
-          name = "ACCOUNT_ACCOUNT_PASSWORD"
+          name = "SOURCE_ACCOUNT_PASSWORD"
           value_source {
             secret_key_ref {
               secret  = "sync_source_password"
