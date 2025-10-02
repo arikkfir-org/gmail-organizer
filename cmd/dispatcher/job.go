@@ -176,7 +176,6 @@ func (j *DispatcherJob) createSubscription(ctx context.Context, topic, dlTopic *
 			MinimumBackoff: 10 * time.Second,
 			MaximumBackoff: 10 * time.Minute,
 		},
-		EnableExactlyOnceDelivery: true,
 	})
 }
 
