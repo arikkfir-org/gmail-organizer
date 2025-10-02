@@ -19,6 +19,14 @@ resource "google_service_account_iam_member" "gha_actAs_worker" {
   member             = google_service_account.gha.member
 }
 
+resource "google_cloud_run_v2_service_iam_member" "worker_invoker" {
+  project  = var.project_id
+  name     = google_cloud_run_v2_service.worker.name
+  location = google_cloud_run_v2_service.worker.location
+  role     = "roles/run.invoker"
+  member   = google_service_account.dispatcher.member
+}
+
 resource "google_cloud_run_v2_service" "worker" {
   depends_on = [
     google_project_service.run,

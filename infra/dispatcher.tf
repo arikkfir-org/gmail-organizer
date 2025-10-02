@@ -54,6 +54,10 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           value = google_cloud_run_v2_service.worker.uri
         }
         env {
+          name  = "DISPATCHER_SERVICE_ACCOUNT_EMAIL"
+          value = google_service_account.dispatcher.email
+        }
+        env {
           name = "SOURCE_ACCOUNT_USERNAME"
           value_source {
             secret_key_ref {

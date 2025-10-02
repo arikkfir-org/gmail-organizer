@@ -32,6 +32,12 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		return nil, fmt.Errorf("PROCESSOR_ENDPOINT environment variable is required")
 	}
 
+	// Dispatcher service account email
+	dispatcherServiceAccountEmail := os.Getenv("DISPATCHER_SERVICE_ACCOUNT_EMAIL")
+	if dispatcherServiceAccountEmail == "" {
+		return nil, fmt.Errorf("DISPATCHER_SERVICE_ACCOUNT_EMAIL environment variable is required")
+	}
+
 	// Gmail account username
 	accountUsername := os.Getenv("SOURCE_ACCOUNT_USERNAME")
 	if accountUsername == "" {
@@ -57,22 +63,24 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 	}
 
 	return &DispatcherJob{
-		runExecutionID:    runExecutionID,
-		processorEndpoint: processorEndpoint,
-		accountUsername:   accountUsername,
-		accountPassword:   accountPassword,
-		jsonLogging:       slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
-		pubSubClient:      pubSubClient,
+		runExecutionID:                runExecutionID,
+		processorEndpoint:             processorEndpoint,
+		dispatcherServiceAccountEmail: dispatcherServiceAccountEmail,
+		accountUsername:               accountUsername,
+		accountPassword:               accountPassword,
+		jsonLogging:                   slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
+		pubSubClient:                  pubSubClient,
 	}, nil
 }
 
 type DispatcherJob struct {
-	runExecutionID    string
-	processorEndpoint string
-	accountUsername   string
-	accountPassword   string
-	jsonLogging       bool
-	pubSubClient      *pubsub.Client
+	runExecutionID                string
+	processorEndpoint             string
+	dispatcherServiceAccountEmail string
+	accountUsername               string
+	accountPassword               string
+	jsonLogging                   bool
+	pubSubClient                  *pubsub.Client
 }
 
 func (j *DispatcherJob) Close() {
@@ -167,6 +175,9 @@ func (j *DispatcherJob) createSubscription(ctx context.Context, topic, dlTopic *
 		Topic: topic,
 		PushConfig: pubsub.PushConfig{
 			Endpoint: j.processorEndpoint,
+			AuthenticationMethod: &pubsub.OIDCToken{
+				ServiceAccountEmail: j.dispatcherServiceAccountEmail,
+			},
 		},
 		AckDeadline:      60 * time.Second,
 		Labels:           map[string]string{"run-execution-id": j.runExecutionID},
