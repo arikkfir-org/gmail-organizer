@@ -105,7 +105,10 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 	}
 
 	// Connect to Gmail server
-	gmail := gcp.NewGmail(j.accountUsername)
+	gmail, err := gcp.NewGmail(j.accountUsername, j.accountPassword)
+	if err != nil {
+		return fmt.Errorf("failed to create Gmail client: %w", err)
+	}
 	defer gmail.Close()
 
 	// Select the "All Mail" label

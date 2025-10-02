@@ -20,8 +20,17 @@ var (
 	gmailImapURL = fmt.Sprintf("%s:%d", gmailImapHost, gmailImapPort)
 )
 
-func NewGmail(account string) *Gmail {
-	return &Gmail{account: account}
+func NewGmail(username, password string) (*Gmail, error) {
+	// TODO: pool IMAP connections
+
+	slog.Info("Connecting to Gmail IMAP server", "email", username)
+	if c, err := client.DialTLS(gmailImapURL, nil); err != nil {
+		return nil, fmt.Errorf("failed to dial: %w", err)
+	} else if err := c.Login(username, password); err != nil {
+		return nil, fmt.Errorf("failed to login: %w", err)
+	} else {
+		return &Gmail{account: username, c: c}, nil
+	}
 }
 
 type Gmail struct {
@@ -30,24 +39,12 @@ type Gmail struct {
 	c *client.Client
 }
 
-func (g *Gmail) Connect(password string) error {
-	// TODO: pool IMAP connections
-	slog.Info("Connecting to Gmail IMAP server", "email", g.account)
-	if c, err := client.DialTLS(gmailImapURL, nil); err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
-	} else if err := c.Login(g.account, password); err != nil {
-		return fmt.Errorf("failed to login: %w", err)
-	} else {
-		g.c = c
-		return nil
-	}
-}
-
 func (g *Gmail) Close() {
 	if g.c != nil {
 		if err := g.c.Logout(); err != nil {
 			slog.Warn("Failed to logout from Gmail IMAP server", "err", err, "email", g.account)
 		}
+		g.c = nil
 	}
 }
 

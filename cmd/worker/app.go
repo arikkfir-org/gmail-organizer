@@ -124,13 +124,13 @@ func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Received Pub/Sub message", "message", pubSubMsg)
 
 	// Connect to target Gmail server
-	targetGmail := gcp.NewGmail(a.targetAccountUsername)
-	defer targetGmail.Close()
-	if err := targetGmail.Connect(a.targetAccountPassword); err != nil {
-		slog.Error("Failed to connect to target Gmail IMAP server", "email", a.targetAccountUsername, "err", err)
-		http.Error(w, "Failed to connect to target Gmail IMAP server", http.StatusInternalServerError)
+	targetGmail, err := gcp.NewGmail(a.targetAccountUsername, a.targetAccountPassword)
+	if err != nil {
+		slog.Error("Failed to create target Gmail client", "err", err)
+		http.Error(w, "Failed to create target Gmail client", http.StatusInternalServerError)
 		return
 	}
+	defer targetGmail.Close()
 
 	// Select the "All Mail" label in the target account
 	if err := targetGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
@@ -165,11 +165,11 @@ func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
 func (a *WorkerApp) appendNewMessageToTargetAccount(sourceGmailUID uint32) error {
 
 	// Connect to source Gmail server
-	sourceGmail := gcp.NewGmail(a.sourceAccountUsername)
-	defer sourceGmail.Close()
-	if err := sourceGmail.Connect(a.sourceAccountPassword); err != nil {
-		return fmt.Errorf("failed to connect to source Gmail: %w", err)
+	sourceGmail, err := gcp.NewGmail(a.sourceAccountUsername, a.sourceAccountPassword)
+	if err != nil {
+		return fmt.Errorf("failed to create source Gmail client: %w", err)
 	}
+	defer sourceGmail.Close()
 
 	// Select the "All Mail" label in the target account
 	if err := sourceGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
@@ -183,11 +183,11 @@ func (a *WorkerApp) appendNewMessageToTargetAccount(sourceGmailUID uint32) error
 	}
 
 	// Connect to target Gmail server
-	targetGmail := gcp.NewGmail(a.targetAccountUsername)
-	defer targetGmail.Close()
-	if err := targetGmail.Connect(a.targetAccountPassword); err != nil {
-		return fmt.Errorf("failed to connect to target Gmail IMAP server for '%s': %w", a.targetAccountUsername, err)
+	targetGmail, err := gcp.NewGmail(a.targetAccountUsername, a.targetAccountPassword)
+	if err != nil {
+		return fmt.Errorf("failed to create target Gmail client: %w", err)
 	}
+	defer targetGmail.Close()
 
 	// Select the "All Mail" label in the target account
 	if err := targetGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
@@ -215,11 +215,11 @@ func (a *WorkerApp) appendNewMessageToTargetAccount(sourceGmailUID uint32) error
 func (a *WorkerApp) updateExistingMessageInTargetAccount(sourceGmailUID uint32, messageID string) error {
 
 	// Connect to source Gmail server
-	sourceGmail := gcp.NewGmail(a.sourceAccountUsername)
-	defer sourceGmail.Close()
-	if err := sourceGmail.Connect(a.sourceAccountPassword); err != nil {
-		return fmt.Errorf("failed to connect to source Gmail: %w", err)
+	sourceGmail, err := gcp.NewGmail(a.sourceAccountUsername, a.sourceAccountPassword)
+	if err != nil {
+		return fmt.Errorf("failed to create source Gmail client: %w", err)
 	}
+	defer sourceGmail.Close()
 
 	// Select the "All Mail" label in the target account
 	if err := sourceGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
@@ -233,11 +233,11 @@ func (a *WorkerApp) updateExistingMessageInTargetAccount(sourceGmailUID uint32, 
 	}
 
 	// Connect to target Gmail server
-	targetGmail := gcp.NewGmail(a.targetAccountUsername)
-	defer targetGmail.Close()
-	if err := targetGmail.Connect(a.targetAccountPassword); err != nil {
-		return fmt.Errorf("failed to connect to target Gmail IMAP server for '%s': %w", a.targetAccountUsername, err)
+	targetGmail, err := gcp.NewGmail(a.targetAccountUsername, a.targetAccountPassword)
+	if err != nil {
+		return fmt.Errorf("failed to create target Gmail client: %w", err)
 	}
+	defer targetGmail.Close()
 
 	// Select the "All Mail" label in the target account
 	if err := targetGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
