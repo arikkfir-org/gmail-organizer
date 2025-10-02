@@ -118,6 +118,9 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to find all UIDs: %w", err)
 	}
+	if os.Getenv("TEST") == "true" {
+		allUIDs = allUIDs[:10]
+	}
 	chunks := slices.Collect(slices.Chunk(allUIDs, batchSize))
 
 	// Process each chunk
