@@ -25,12 +25,6 @@ type Message struct {
 
 func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 
-	// Cloud Run job execution ID
-	runExecutionID := os.Getenv("CLOUD_RUN_EXECUTION")
-	if runExecutionID == "" {
-		return nil, fmt.Errorf("CLOUD_RUN_EXECUTION environment variable is required")
-	}
-
 	// Source Gmail account username
 	sourceAccountUsername := os.Getenv("SOURCE_ACCOUNT_USERNAME")
 	if sourceAccountUsername == "" {
@@ -70,7 +64,6 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	}
 
 	return &WorkerApp{
-		runExecutionID:        runExecutionID,
 		sourceAccountUsername: sourceAccountUsername,
 		sourceAccountPassword: sourceAccountPassword,
 		targetAccountUsername: targetAccountUsername,
