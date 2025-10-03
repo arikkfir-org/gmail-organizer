@@ -225,7 +225,6 @@ func (j *DispatcherJob) migrateMessages(ctx context.Context) error {
 }
 
 func (j *DispatcherJob) migrateMessage(ctx context.Context, sourceGmailUID uint32, messageID string) error {
-	slog.Debug("Migrating message", "sourceGmailUID", sourceGmailUID, "messageID", messageID)
 	if uid, err := j.targetGmail.FindUIDByMessageID(ctx, gcp.GmailAllMailLabel, messageID); err != nil {
 		return fmt.Errorf("failed to search for message '%s' in target account: %w", messageID, err)
 	} else if uid == nil {
