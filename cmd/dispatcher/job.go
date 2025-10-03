@@ -180,7 +180,7 @@ func (j *DispatcherJob) createSubscription(ctx context.Context, topic, dlTopic *
 	return j.createSub(ctx, fmt.Sprintf("messages-worker-%s", j.runExecutionID), pubsub.SubscriptionConfig{
 		Topic:               topic,
 		PushConfig:          pushConfig,
-		AckDeadline:         60 * time.Second,
+		AckDeadline:         5 * time.Minute,
 		RetainAckedMessages: false,
 		RetentionDuration:   1 * time.Hour,
 		Labels:              map[string]string{"run-execution-id": j.runExecutionID},
