@@ -44,6 +44,16 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		return nil, fmt.Errorf("SOURCE_ACCOUNT_PASSWORD environment variable is required")
 	}
 
+	// Gmail account password
+	var maxEmailsToProcess uint64 = math.MaxUint64
+	if s, found := os.LookupEnv("MAX_EMAILS"); found {
+		if v, err := strconv.ParseUint(s, 10, 64); err != nil {
+			return nil, fmt.Errorf("failed to parse MAX_EMAILS environment variable: %w", err)
+		} else {
+			maxEmailsToProcess = v
+		}
+	}
+
 	// Determine GCP project ID
 	projectID, err := gcp.GetProjectId(ctx)
 	if err != nil {
@@ -64,6 +74,7 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		accountPassword:               accountPassword,
 		dispatcherServiceAccountEmail: os.Getenv("DISPATCHER_SERVICE_ACCOUNT_EMAIL"),
 		jsonLogging:                   slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
+		maxEmailsToProcess:            maxEmailsToProcess,
 		pubSubClient:                  pubSubClient,
 	}, nil
 }
@@ -75,6 +86,7 @@ type DispatcherJob struct {
 	accountUsername               string
 	accountPassword               string
 	jsonLogging                   bool
+	maxEmailsToProcess            uint64
 	pubSubClient                  *pubsub.Client
 }
 
@@ -121,8 +133,9 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to find all UIDs: %w", err)
 	}
-	if os.Getenv("TEST") == "true" {
-		allUIDs = allUIDs[:10]
+	slices.Sort(allUIDs)
+	if uint64(len(allUIDs)) > j.maxEmailsToProcess {
+		allUIDs = allUIDs[:int(j.maxEmailsToProcess)]
 	}
 	chunks := slices.Collect(slices.Chunk(allUIDs, batchSize))
 
