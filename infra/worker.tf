@@ -44,6 +44,13 @@ resource "google_cloud_run_v2_service" "worker" {
 
   template {
     service_account = google_service_account.worker.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+    max_instance_request_concurrency = 500
+
     containers {
       image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/worker:${var.image_tag}"
       resources {
