@@ -147,7 +147,7 @@ func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read Pub/Sub message", http.StatusBadRequest)
 		return
 	}
-	slog.Info("Received Pub/Sub message", "message", pubSubMsg)
+	slog.Info("Received Pub/Sub message", "pubSubMessage", pubSubMsg)
 
 	// Check if the given `Message-Id` already exists in the target account
 	sourceGmailUID := pubSubMsg.Message.Data.Uid
