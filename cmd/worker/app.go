@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/arikkfir-org/gmail-organizer/internal/gcp"
@@ -48,6 +50,16 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 		return nil, fmt.Errorf("TARGET_ACCOUNT_PASSWORD environment variable is required")
 	}
 
+	// HTTP port
+	var port uint16 = 8080
+	if s, found := os.LookupEnv("PORT"); found {
+		if v, err := strconv.ParseUint(s, 10, 16); err != nil {
+			return nil, fmt.Errorf("failed to parse PORT environment variable: %w", err)
+		} else {
+			port = uint16(v)
+		}
+	}
+
 	// Determine GCP project ID
 	projectID, err := gcp.GetProjectId(ctx)
 	if err != nil {
@@ -61,25 +73,23 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	}
 
 	return &WorkerApp{
-		sourceAccountUsername: sourceAccountUsername,
-		sourceAccountPassword: sourceAccountPassword,
-		targetAccountUsername: targetAccountUsername,
-		targetAccountPassword: targetAccountPassword,
-		jsonLogging:           slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
-		dryRun:                os.Getenv("DRY_RUN") == "" || slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("DRY_RUN")),
-		pubSubClient:          pubSubClient,
+		sourceGmail:  gcp.NewGmail(sourceAccountUsername, sourceAccountPassword),
+		targetGmail:  gcp.NewGmail(targetAccountUsername, targetAccountPassword),
+		jsonLogging:  slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
+		dryRun:       os.Getenv("DRY_RUN") != "" || slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("DRY_RUN")),
+		pubSubClient: pubSubClient,
+		port:         port,
 	}, nil
 }
 
 type WorkerApp struct {
-	runExecutionID        string
-	sourceAccountUsername string
-	sourceAccountPassword string
-	targetAccountUsername string
-	targetAccountPassword string
-	jsonLogging           bool
-	dryRun                bool
-	pubSubClient          *pubsub.Client
+	runExecutionID string
+	sourceGmail    *gcp.Gmail
+	targetGmail    *gcp.Gmail
+	jsonLogging    bool
+	dryRun         bool
+	pubSubClient   *pubsub.Client
+	port           uint16
 }
 
 func (a *WorkerApp) Close() {
@@ -96,7 +106,7 @@ func (a *WorkerApp) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /", a.HandleRequest)
 
 	server := http.Server{
-		Addr:     ":8080",
+		Addr:     fmt.Sprintf(":%d", a.port),
 		Handler:  mux,
 		ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelInfo),
 		BaseContext: func(net.Listener) context.Context {
@@ -139,26 +149,10 @@ func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("Received Pub/Sub message", "message", pubSubMsg)
 
-	// Connect to target Gmail server
-	targetGmail, err := gcp.NewGmail(a.targetAccountUsername, a.targetAccountPassword)
-	if err != nil {
-		slog.Error("Failed to create target Gmail client", "err", err)
-		http.Error(w, "Failed to create target Gmail client", http.StatusInternalServerError)
-		return
-	}
-	defer targetGmail.Close()
-
-	// Select the "All Mail" label in the target account
-	if err := targetGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
-		slog.Error("Failed to select 'All Mail' label in target account", "err", err)
-		http.Error(w, "Failed to select 'All Mail' label in target account", http.StatusInternalServerError)
-		return
-	}
-
 	// Check if the given `Message-Id` already exists in the target account
 	sourceGmailUID := pubSubMsg.Message.Data.Uid
 	messageID := pubSubMsg.Message.Data.Envelope.MessageId
-	if uid, err := targetGmail.FindUIDByMessageID(messageID); err != nil {
+	if uid, err := a.targetGmail.FindUIDByMessageID(gcp.GmailAllMailLabel, messageID); err != nil {
 		slog.Error("Failed to find UID in target account for given message",
 			"err", err, "messageId", messageID, "sourceAccountUID", sourceGmailUID)
 		http.Error(w, "Failed to find UID for message in target account", http.StatusInternalServerError)
@@ -170,7 +164,7 @@ func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to append new message to target account", http.StatusInternalServerError)
 		}
 	} else {
-		if err := a.updateExistingMessageInTargetAccount(*uid, messageID); err != nil {
+		if err := a.updateExistingMessageInTargetAccount(sourceGmailUID, messageID); err != nil {
 			slog.Error("Failed to update existing message in target account",
 				"err", err, "messageId", messageID, "sourceAccountUID", sourceGmailUID)
 			http.Error(w, "Failed to update existing message in target account", http.StatusInternalServerError)
@@ -180,34 +174,10 @@ func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
 
 func (a *WorkerApp) appendNewMessageToTargetAccount(sourceGmailUID uint32) error {
 
-	// Connect to source Gmail server
-	sourceGmail, err := gcp.NewGmail(a.sourceAccountUsername, a.sourceAccountPassword)
-	if err != nil {
-		return fmt.Errorf("failed to create source Gmail client: %w", err)
-	}
-	defer sourceGmail.Close()
-
-	// Select the "All Mail" label in the target account
-	if err := sourceGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
-		return fmt.Errorf("failed to select 'All Mail' label in source account: %w", err)
-	}
-
 	// Fetch message
-	msg, err := sourceGmail.FetchMessageByUID(sourceGmailUID, imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, imap.FetchRFC822, gcp.GmailLabelsExt)
+	msg, err := a.sourceGmail.FetchMessageByUID(gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, imap.FetchRFC822, gcp.GmailLabelsExt)
 	if err != nil {
-		return fmt.Errorf("failed to fetch message '%d' from source account '%s': %w", sourceGmailUID, a.sourceAccountUsername, err)
-	}
-
-	// Connect to target Gmail server
-	targetGmail, err := gcp.NewGmail(a.targetAccountUsername, a.targetAccountPassword)
-	if err != nil {
-		return fmt.Errorf("failed to create target Gmail client: %w", err)
-	}
-	defer targetGmail.Close()
-
-	// Select the "All Mail" label in the target account
-	if err := targetGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
-		return fmt.Errorf("failed to select 'All Mail' label in target account: %w", err)
+		return fmt.Errorf("failed to fetch message '%d' from source account: %w", sourceGmailUID, err)
 	}
 
 	// Append the message to the target's "[Gmail]/All Mail" folder.
@@ -221,7 +191,7 @@ func (a *WorkerApp) appendNewMessageToTargetAccount(sourceGmailUID uint32) error
 			"envelope", msg.Envelope,
 			"body", msg.Body,
 			"items", msg.Items)
-	} else if err := targetGmail.AppendMessage(msg); err != nil {
+	} else if _, err := a.targetGmail.AppendMessage(gcp.GmailAllMailLabel, msg); err != nil {
 		return fmt.Errorf("failed to append message %d to target: %w", sourceGmailUID, err)
 	}
 
@@ -230,47 +200,23 @@ func (a *WorkerApp) appendNewMessageToTargetAccount(sourceGmailUID uint32) error
 
 func (a *WorkerApp) updateExistingMessageInTargetAccount(sourceGmailUID uint32, messageID string) error {
 
-	// Connect to source Gmail server
-	sourceGmail, err := gcp.NewGmail(a.sourceAccountUsername, a.sourceAccountPassword)
-	if err != nil {
-		return fmt.Errorf("failed to create source Gmail client: %w", err)
-	}
-	defer sourceGmail.Close()
-
-	// Select the "All Mail" label in the target account
-	if err := sourceGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
-		return fmt.Errorf("failed to select 'All Mail' label in source account: %w", err)
-	}
-
 	// Fetch message
-	msg, err := sourceGmail.FetchMessageByUID(sourceGmailUID, imap.FetchFlags, gcp.GmailLabelsExt)
+	sourceMsg, err := a.sourceGmail.FetchMessageByUID(gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchFlags, imap.FetchInternalDate, imap.FetchEnvelope, gcp.GmailLabelsExt)
 	if err != nil {
-		return fmt.Errorf("failed to fetch message '%d' from source account '%s': %w", sourceGmailUID, a.sourceAccountUsername, err)
-	}
-
-	// Connect to target Gmail server
-	targetGmail, err := gcp.NewGmail(a.targetAccountUsername, a.targetAccountPassword)
-	if err != nil {
-		return fmt.Errorf("failed to create target Gmail client: %w", err)
-	}
-	defer targetGmail.Close()
-
-	// Select the "All Mail" label in the target account
-	if err := targetGmail.Select(gcp.GmailAllMailLabel, true); err != nil {
-		return fmt.Errorf("failed to select 'All Mail' label in target account: %w", err)
+		return fmt.Errorf("failed to fetch message '%d' from source account: %w", sourceGmailUID, err)
 	}
 
 	// Update message
 	if a.dryRun {
 		slog.Info("Updating existing message",
 			"dryRun", true,
-			"messageID", msg.Envelope.MessageId,
-			"flags", msg.Flags,
-			"internalDate", msg.InternalDate,
-			"envelope", msg.Envelope,
-			"body", msg.Body,
-			"items", msg.Items)
-	} else if err := targetGmail.UpdateMessage(msg); err != nil {
+			"messageID", sourceMsg.Envelope.MessageId,
+			"flags", sourceMsg.Flags,
+			"internalDate", sourceMsg.InternalDate,
+			"envelope", sourceMsg.Envelope,
+			"body", sourceMsg.Body,
+			"items", sourceMsg.Items)
+	} else if err := a.targetGmail.UpdateMessage(gcp.GmailAllMailLabel, sourceMsg); err != nil {
 		return fmt.Errorf("failed to update message '%s' in target account: %w", messageID, err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -20,63 +21,109 @@ var (
 	gmailImapURL = fmt.Sprintf("%s:%d", gmailImapHost, gmailImapPort)
 )
 
-func NewGmail(username, password string) (*Gmail, error) {
-	// TODO: pool IMAP connections
+type Gmail struct {
+	username string
+	password string
+	mu       sync.Mutex
+	conns    chan *client.Client
+	factory  func() (*client.Client, error)
+}
 
-	slog.Info("Connecting to Gmail IMAP server", "email", username)
-	if c, err := client.DialTLS(gmailImapURL, nil); err != nil {
-		return nil, fmt.Errorf("failed to dial: %w", err)
-	} else if err := c.Login(username, password); err != nil {
-		return nil, fmt.Errorf("failed to login: %w", err)
-	} else {
-		return &Gmail{account: username, c: c}, nil
+func NewGmail(username, password string) *Gmail {
+	return &Gmail{
+		username: username,
+		password: password,
+		conns:    make(chan *client.Client, 10),
+		factory: func() (*client.Client, error) {
+			if c, err := client.DialTLS(gmailImapURL, nil); err != nil {
+				return nil, fmt.Errorf("failed to dial: %w", err)
+			} else if err := c.Login(username, password); err != nil {
+				return nil, fmt.Errorf("failed to login: %w", err)
+			} else {
+				return c, nil
+			}
+		},
 	}
 }
 
-type Gmail struct {
-	account string
+func (g *Gmail) releaseIMAPConnection(c *client.Client) {
+	select {
+	case g.conns <- c:
+	default:
+		if err := c.Logout(); err != nil {
+			slog.Warn("Failed logging out of a IMAP connection due to full pool", "err", err, "username", g.username)
+		}
+	}
+}
 
-	c *client.Client
+func (g *Gmail) getIMAPConnection() (*client.Client, func(), error) {
+	select {
+	case c := <-g.conns:
+		if err := c.Noop(); err != nil {
+			if err := c.Logout(); err != nil {
+				slog.Warn("Failed logging out of a bad IMAP connection", "err", err, "username", g.username)
+			}
+			return g.getIMAPConnection()
+		}
+		return c, func() { g.releaseIMAPConnection(c) }, nil
+	default:
+		slog.Info("Connecting to Gmail IMAP server", "username", g.username)
+		c, err := g.factory()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create new connection: %w", err)
+		}
+		return c, func() { g.releaseIMAPConnection(c) }, nil
+	}
 }
 
 func (g *Gmail) Close() {
-	if g.c != nil {
-		if err := g.c.Logout(); err != nil {
-			slog.Warn("Failed to logout from Gmail IMAP server", "err", err, "email", g.account)
+	close(g.conns)
+	for c := range g.conns {
+		if err := c.Logout(); err != nil {
+			slog.Warn("Failed to logout from Gmail IMAP server (closing pool)", "err", err, "username", g.username)
 		}
-		g.c = nil
 	}
 }
 
-func (g *Gmail) Select(mailbox string, readOnly bool) error {
-	if g.c == nil {
-		return fmt.Errorf("not connected to Gmail IMAP server for '%s'", g.account)
-	} else if _, err := g.c.Select(mailbox, readOnly); err != nil {
-		return fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.account, err)
-	} else {
-		return nil
+func (g *Gmail) FindAllUIDs(mailbox string) ([]uint32, error) {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Gmail connection: %w", err)
 	}
-}
+	defer release()
 
-func (g *Gmail) FindAllUIDs() ([]uint32, error) {
+	if _, err := c.Select(mailbox, true); err != nil {
+		return nil, fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.username, err)
+	}
+
 	criteria := imap.NewSearchCriteria()
 	criteria.SeqNum = new(imap.SeqSet)
 	criteria.SeqNum.AddRange(1, 0)
-	uids, err := g.c.UidSearch(criteria)
+	uids, err := c.UidSearch(criteria)
 	if err != nil {
 		return nil, fmt.Errorf("failed performing criteria search for all UIDs: %w", err)
 	}
 	return uids, nil
 }
 
-func (g *Gmail) FetchByUIDs(uids []uint32, items ...imap.FetchItem) ([]*imap.Message, error) {
+func (g *Gmail) FetchByUIDs(mailbox string, uids []uint32, items ...imap.FetchItem) ([]*imap.Message, error) {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	if _, err := c.Select(mailbox, true); err != nil {
+		return nil, fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.username, err)
+	}
+
 	if !slices.Contains(items, imap.FetchUid) {
 		items = append(items, imap.FetchUid)
 	}
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uids...)
 	messagesCh := make(chan *imap.Message, len(uids))
-	if err := g.c.UidFetch(seqSet, items, messagesCh); err != nil {
+	if err := c.UidFetch(seqSet, items, messagesCh); err != nil {
 		return nil, fmt.Errorf("failed to fetch message IDs: %w", err)
 	}
 	messages := make([]*imap.Message, 0, len(uids))
@@ -86,10 +133,20 @@ func (g *Gmail) FetchByUIDs(uids []uint32, items ...imap.FetchItem) ([]*imap.Mes
 	return messages, nil
 }
 
-func (g *Gmail) FindUIDByMessageID(messageID string) (*uint32, error) {
+func (g *Gmail) FindUIDByMessageID(mailbox string, messageID string) (*uint32, error) {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	if _, err := c.Select(mailbox, true); err != nil {
+		return nil, fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.username, err)
+	}
+
 	criteria := imap.NewSearchCriteria()
 	criteria.Header.Add("Message-Id", messageID)
-	uids, err := g.c.UidSearch(criteria)
+	uids, err := c.UidSearch(criteria)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for message by Message-ID: %w", err)
 	} else if len(uids) == 0 {
@@ -101,44 +158,64 @@ func (g *Gmail) FindUIDByMessageID(messageID string) (*uint32, error) {
 	}
 }
 
-func (g *Gmail) FetchMessageByUID(uid uint32, items ...imap.FetchItem) (*imap.Message, error) {
+func (g *Gmail) FetchMessageByUID(mailbox string, uid uint32, items ...imap.FetchItem) (*imap.Message, error) {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	if _, err := c.Select(mailbox, true); err != nil {
+		return nil, fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.username, err)
+	}
+
 	if !slices.Contains(items, imap.FetchUid) {
 		items = append(items, imap.FetchUid)
 	}
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uid)
 	messages := make(chan *imap.Message, 1)
-	if err := g.c.UidFetch(seqSet, items, messages); err != nil {
-		return nil, fmt.Errorf("failed to fetch message '%d' from account '%s': %w", uid, g.account, err)
+	if err := c.UidFetch(seqSet, items, messages); err != nil {
+		return nil, fmt.Errorf("failed to fetch message '%d' from account '%s': %w", uid, g.username, err)
 	}
 	msg := <-messages
 	if msg == nil {
-		return nil, fmt.Errorf("server did not provide message '%d' from account '%s'", uid, g.account)
+		return nil, fmt.Errorf("server did not provide message '%d' from account '%s'", uid, g.username)
 	}
 
 	return msg, nil
 }
 
-func (g *Gmail) AppendMessage(msg *imap.Message) error {
+func (g *Gmail) AppendMessage(mailbox string, msg *imap.Message) (uint32, error) {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	if _, err := c.Select(mailbox, false); err != nil {
+		return 0, fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.username, err)
+	}
+
 	if msg.Uid == 0 {
-		return fmt.Errorf("cannot append message %d - it has no UID", msg.Uid)
+		return 0, fmt.Errorf("cannot append message %d - it has no UID", msg.Uid)
 	}
 
 	r := msg.GetBody(&imap.BodySectionName{})
 	if r == nil {
-		return fmt.Errorf("cannot append message %d - it is missing body", msg.Uid)
+		return 0, fmt.Errorf("cannot append message %d - it is missing body", msg.Uid)
 	}
 
-	if err := g.c.Append(GmailAllMailLabel, msg.Flags, msg.InternalDate, r); err != nil {
-		return fmt.Errorf("failed to append message %d to target: %w", msg.Uid, err)
+	if err := c.Append(GmailAllMailLabel, msg.Flags, msg.InternalDate, r); err != nil {
+		return 0, fmt.Errorf("failed to append message %d to target: %w", msg.Uid, err)
 	}
 
 	messageID := msg.Envelope.MessageId
-	uid, err := g.FindUIDByMessageID(messageID)
+	uid, err := g.FindUIDByMessageID(mailbox, messageID)
 	if err != nil {
-		return fmt.Errorf("failed to find UID for newly-appended message '%s' in target account: %w", messageID, err)
+		return 0, fmt.Errorf("failed to find UID for newly-appended message '%s' in target account: %w", messageID, err)
 	} else if uid == nil {
-		return fmt.Errorf("could not find UID for newly appended message '%s' in target account", messageID)
+		return 0, fmt.Errorf("could not find UID for newly appended message '%s' in target account", messageID)
 	}
 
 	var labels []string
@@ -148,12 +225,12 @@ func (g *Gmail) AppendMessage(msg *imap.Message) error {
 				if label, ok := l.(string); ok {
 					labels = append(labels, label)
 				} else {
-					return fmt.Errorf("invalid label type '%T'", l)
+					return 0, fmt.Errorf("invalid label type '%T'", l)
 				}
 			}
 			slices.Sort(labels)
 		} else {
-			return fmt.Errorf("invalid labels type '%T'", rawLabels)
+			return 0, fmt.Errorf("invalid labels type '%T'", rawLabels)
 		}
 	}
 	labelsAsAnyArray := make([]any, len(labels))
@@ -163,14 +240,23 @@ func (g *Gmail) AppendMessage(msg *imap.Message) error {
 
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(*uid)
-	if err := g.c.UidStore(seqSet, GmailLabelsExt+".SILENT", labelsAsAnyArray, nil); err != nil {
-		return fmt.Errorf("failed to store labels on target message '%d': %w", *uid, err)
+	if err := c.UidStore(seqSet, GmailLabelsExt+".SILENT", labelsAsAnyArray, nil); err != nil {
+		return 0, fmt.Errorf("failed to store labels on target message '%d': %w", *uid, err)
 	}
 
-	return nil
+	return *uid, nil
 }
 
-func (g *Gmail) UpdateMessage(msg *imap.Message) error {
+func (g *Gmail) UpdateMessage(mailbox string, msg *imap.Message) error {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	if _, err := c.Select(mailbox, false); err != nil {
+		return fmt.Errorf("failed to select '%s' in account %s: %w", mailbox, g.username, err)
+	}
 
 	// We use the `Message-Id` value to find the message in this account
 	messageID := msg.Envelope.MessageId
@@ -179,9 +265,9 @@ func (g *Gmail) UpdateMessage(msg *imap.Message) error {
 	}
 
 	// Fetch message
-	uid, err := g.FindUIDByMessageID(messageID)
+	uid, err := g.FindUIDByMessageID(mailbox, messageID)
 	if err != nil {
-		return fmt.Errorf("failed to fetch message '%d' from account '%s': %w", uid, g.account, err)
+		return fmt.Errorf("failed to fetch message '%d' from account '%s': %w", uid, g.username, err)
 	} else if uid == nil {
 		return fmt.Errorf("could not find UID for message '%s' in target account", messageID)
 	}
@@ -208,7 +294,7 @@ func (g *Gmail) UpdateMessage(msg *imap.Message) error {
 	for i, label := range labels {
 		labelsAsAnyArray[i] = label
 	}
-	if err := g.c.UidStore(seqSet, GmailLabelsExt+".SILENT", labelsAsAnyArray, nil); err != nil {
+	if err := c.UidStore(seqSet, GmailLabelsExt+".SILENT", labelsAsAnyArray, nil); err != nil {
 		return fmt.Errorf("failed to update labels of target message '%d': %w", *uid, err)
 	}
 
@@ -217,7 +303,7 @@ func (g *Gmail) UpdateMessage(msg *imap.Message) error {
 	for i, flag := range msg.Flags {
 		flagsAsAnyArray[i] = flag
 	}
-	if err := g.c.UidStore(seqSet, imap.FormatFlagsOp(imap.SetFlags, true), flagsAsAnyArray, nil); err != nil {
+	if err := c.UidStore(seqSet, imap.FormatFlagsOp(imap.SetFlags, true), flagsAsAnyArray, nil); err != nil {
 		return fmt.Errorf("failed to update flags of target message '%d': %w", *uid, err)
 	}
 

@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"slices"
+	"strconv"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/pubsub"
@@ -69,10 +72,8 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 	return &DispatcherJob{
 		runExecutionID:                runExecutionID,
 		processorEndpoint:             processorEndpoint,
-		dispatcherServiceAccountEmail: dispatcherServiceAccountEmail,
-		accountUsername:               accountUsername,
-		accountPassword:               accountPassword,
 		dispatcherServiceAccountEmail: os.Getenv("DISPATCHER_SERVICE_ACCOUNT_EMAIL"),
+		gmail:                         gcp.NewGmail(accountUsername, accountPassword),
 		jsonLogging:                   slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
 		maxEmailsToProcess:            maxEmailsToProcess,
 		pubSubClient:                  pubSubClient,
@@ -83,8 +84,7 @@ type DispatcherJob struct {
 	runExecutionID                string
 	processorEndpoint             string
 	dispatcherServiceAccountEmail string
-	accountUsername               string
-	accountPassword               string
+	gmail                         *gcp.Gmail
 	jsonLogging                   bool
 	maxEmailsToProcess            uint64
 	pubSubClient                  *pubsub.Client
@@ -94,6 +94,7 @@ func (j *DispatcherJob) Close() {
 	if err := j.pubSubClient.Close(); err != nil {
 		slog.Warn("Failed to close Pub/Sub client", "err", err)
 	}
+	j.gmail.Close()
 }
 
 func (j *DispatcherJob) Run(ctx context.Context) error {
@@ -116,20 +117,8 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to ensure messages dead-letter topic subscription: %w", err)
 	}
 
-	// Connect to Gmail server
-	gmail, err := gcp.NewGmail(j.accountUsername, j.accountPassword)
-	if err != nil {
-		return fmt.Errorf("failed to create Gmail client: %w", err)
-	}
-	defer gmail.Close()
-
-	// Select the "All Mail" label
-	if err := gmail.Select(gcp.GmailAllMailLabel, true); err != nil {
-		return fmt.Errorf("failed to select all-mail label: %w", err)
-	}
-
 	// Iterate messages one by one and fetch
-	allUIDs, err := gmail.FindAllUIDs()
+	allUIDs, err := j.gmail.FindAllUIDs(gcp.GmailAllMailLabel)
 	if err != nil {
 		return fmt.Errorf("failed to find all UIDs: %w", err)
 	}
@@ -141,7 +130,7 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 
 	// Process each chunk
 	for chunkNumber, chunkUIDs := range chunks {
-		messages, err := gmail.FetchByUIDs(chunkUIDs, imap.FetchEnvelope)
+		messages, err := j.gmail.FetchByUIDs(gcp.GmailAllMailLabel, chunkUIDs, imap.FetchEnvelope)
 		if err != nil {
 			return fmt.Errorf("failed to fetch messages for chunk %d: %w", chunkNumber, err)
 		}
