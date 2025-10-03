@@ -3,7 +3,6 @@ package util
 import (
 	"log/slog"
 	"os"
-	"time"
 
 	"github.com/lmittmann/tint"
 )
@@ -28,7 +27,18 @@ func ConfigureLogging(jsonLogging bool) {
 	} else {
 		slog.SetDefault(slog.New(
 			tint.NewHandler(os.Stderr, &tint.Options{
-				TimeFormat: time.Kitchen,
+				AddSource: true,
+				ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+					if a.Key == slog.TimeKey {
+						a.Key = "timestamp"
+					} else if a.Key == slog.LevelKey {
+						a.Key = "severity"
+					} else if a.Key == slog.MessageKey {
+						a.Key = "message"
+					}
+					return a
+				},
+				TimeFormat: "15:04:05",
 			}),
 		))
 	}
