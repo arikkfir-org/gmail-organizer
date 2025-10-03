@@ -3,6 +3,7 @@ module github.com/arikkfir-org/gmail-organizer
 go 1.25.1
 
 require (
+	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/emersion/go-imap v1.2.1
 	github.com/lmittmann/tint v1.1.2
 )

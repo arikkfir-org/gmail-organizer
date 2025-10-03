@@ -99,13 +99,13 @@ func (j *DispatcherJob) Close() {
 }
 
 func (j *DispatcherJob) Run(ctx context.Context) error {
-	if err := j.migrateMailboxes(); err != nil {
+	if err := j.migrateMailboxes(ctx); err != nil {
 		return fmt.Errorf("failed to migrate mailboxes: %w", err)
 	}
 
 	collectionErrorCh := make(chan error, 1)
 	go func() {
-		collectionErrorCh <- j.collectMessagesForMigration()
+		collectionErrorCh <- j.collectMessagesForMigration(ctx)
 	}()
 
 	migrationErrorCh := make(chan error, messageMigrationWorkers)
@@ -140,15 +140,15 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 	}
 }
 
-func (j *DispatcherJob) migrateMailboxes() error {
+func (j *DispatcherJob) migrateMailboxes(ctx context.Context) error {
 	slog.Info("Fetching source mailbox names")
-	sourceMailboxNames, err := j.sourceGmail.FetchMailboxNames(true, false)
+	sourceMailboxNames, err := j.sourceGmail.FetchMailboxNames(ctx, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to fetch source mailbox names: %w", err)
 	}
 
 	slog.Info("Fetching target mailbox names")
-	targetMailboxNames, err := j.targetGmail.FetchMailboxNames(true, false)
+	targetMailboxNames, err := j.targetGmail.FetchMailboxNames(ctx, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to fetch target mailbox names: %w", err)
 	}
@@ -160,17 +160,17 @@ func (j *DispatcherJob) migrateMailboxes() error {
 	}
 
 	slog.Info("Creating mailboxes in target account")
-	if err := j.targetGmail.CreateMailboxes(missingMailboxNames...); err != nil {
+	if err := j.targetGmail.CreateMailboxes(ctx, missingMailboxNames...); err != nil {
 		return fmt.Errorf("failed to create mailboxes: %w", err)
 	}
 
 	return nil
 }
 
-func (j *DispatcherJob) collectMessagesForMigration() error {
+func (j *DispatcherJob) collectMessagesForMigration(ctx context.Context) error {
 	// Iterate messages one by one and fetch
 	slog.Info("Fetching messages for migration")
-	allUIDs, err := j.sourceGmail.FindAllUIDs(gcp.GmailAllMailLabel)
+	allUIDs, err := j.sourceGmail.FindAllUIDs(ctx, gcp.GmailAllMailLabel)
 	if err != nil {
 		return fmt.Errorf("failed to find all UIDs: %w", err)
 	}
@@ -187,7 +187,7 @@ func (j *DispatcherJob) collectMessagesForMigration() error {
 	chunks := slices.Collect(slices.Chunk(allUIDs, batchSize))
 	for chunkNumber, chunkUIDs := range chunks {
 		slog.Info("Migrating chunk", "chunkIndex", chunkNumber)
-		messages, err := j.sourceGmail.FetchByUIDs(gcp.GmailAllMailLabel, chunkUIDs, imap.FetchEnvelope)
+		messages, err := j.sourceGmail.FetchByUIDs(ctx, gcp.GmailAllMailLabel, chunkUIDs, imap.FetchEnvelope)
 		if err != nil {
 			return fmt.Errorf("failed to fetch messages for chunk %d: %w", chunkNumber, err)
 		}
@@ -217,32 +217,32 @@ func (j *DispatcherJob) migrateMessages(ctx context.Context) error {
 				return nil
 			} else if r == nil {
 				return nil
-			} else if err := j.migrateMessage(r.sourceGmailUID, r.messageID); err != nil {
+			} else if err := j.migrateMessage(ctx, r.sourceGmailUID, r.messageID); err != nil {
 				return fmt.Errorf("failed to migrate message '%s' (%d): %w", r.messageID, r.sourceGmailUID, err)
 			}
 		}
 	}
 }
 
-func (j *DispatcherJob) migrateMessage(sourceGmailUID uint32, messageID string) error {
+func (j *DispatcherJob) migrateMessage(ctx context.Context, sourceGmailUID uint32, messageID string) error {
 	slog.Debug("Migrating message", "sourceGmailUID", sourceGmailUID, "messageID", messageID)
-	if uid, err := j.targetGmail.FindUIDByMessageID(gcp.GmailAllMailLabel, messageID); err != nil {
+	if uid, err := j.targetGmail.FindUIDByMessageID(ctx, gcp.GmailAllMailLabel, messageID); err != nil {
 		return fmt.Errorf("failed to search for message '%s' in target account: %w", messageID, err)
 	} else if uid == nil {
-		if err := j.appendNewMessageToTargetAccount(sourceGmailUID); err != nil {
+		if err := j.appendNewMessageToTargetAccount(ctx, sourceGmailUID); err != nil {
 			return fmt.Errorf("failed to append new message '%s' to target account: %w", messageID, err)
 		}
-	} else if err := j.updateExistingMessageInTargetAccount(sourceGmailUID, messageID); err != nil {
+	} else if err := j.updateExistingMessageInTargetAccount(ctx, sourceGmailUID, messageID); err != nil {
 		return fmt.Errorf("failed to update existing message '%s' in target account: %w", messageID, err)
 	}
 	return nil
 }
 
-func (j *DispatcherJob) appendNewMessageToTargetAccount(sourceGmailUID uint32) error {
+func (j *DispatcherJob) appendNewMessageToTargetAccount(ctx context.Context, sourceGmailUID uint32) error {
 
 	// Fetch message
 	slog.Debug("Appending new message to target account", "sourceGmailUID", sourceGmailUID)
-	msg, err := j.sourceGmail.FetchMessageByUID(gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, imap.FetchRFC822, gcp.GmailLabelsExt)
+	msg, err := j.sourceGmail.FetchMessageByUID(ctx, gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, imap.FetchRFC822, gcp.GmailLabelsExt)
 	if err != nil {
 		return fmt.Errorf("failed to fetch message '%d' from source account: %w", sourceGmailUID, err)
 	}
@@ -258,18 +258,18 @@ func (j *DispatcherJob) appendNewMessageToTargetAccount(sourceGmailUID uint32) e
 			"envelope", msg.Envelope,
 			"body", msg.Body,
 			"items", msg.Items)
-	} else if _, err := j.targetGmail.AppendMessage(gcp.GmailAllMailLabel, msg); err != nil {
+	} else if _, err := j.targetGmail.AppendMessage(ctx, gcp.GmailAllMailLabel, msg); err != nil {
 		return fmt.Errorf("failed to append message %d to target: %w", sourceGmailUID, err)
 	}
 
 	return nil
 }
 
-func (j *DispatcherJob) updateExistingMessageInTargetAccount(sourceGmailUID uint32, messageID string) error {
+func (j *DispatcherJob) updateExistingMessageInTargetAccount(ctx context.Context, sourceGmailUID uint32, messageID string) error {
 
 	// Fetch message
 	slog.Debug("Updating message in target account", "sourceGmailUID", sourceGmailUID, "messageID", messageID)
-	sourceMsg, err := j.sourceGmail.FetchMessageByUID(gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchFlags, imap.FetchInternalDate, imap.FetchEnvelope, gcp.GmailLabelsExt)
+	sourceMsg, err := j.sourceGmail.FetchMessageByUID(ctx, gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchFlags, imap.FetchInternalDate, imap.FetchEnvelope, gcp.GmailLabelsExt)
 	if err != nil {
 		return fmt.Errorf("failed to fetch message '%d' from source account: %w", sourceGmailUID, err)
 	}
@@ -284,7 +284,7 @@ func (j *DispatcherJob) updateExistingMessageInTargetAccount(sourceGmailUID uint
 			"envelope", sourceMsg.Envelope,
 			"body", sourceMsg.Body,
 			"items", sourceMsg.Items)
-	} else if err := j.targetGmail.UpdateMessage(gcp.GmailAllMailLabel, sourceMsg); err != nil {
+	} else if err := j.targetGmail.UpdateMessage(ctx, gcp.GmailAllMailLabel, sourceMsg); err != nil {
 		return fmt.Errorf("failed to update message '%s' in target account: %w", messageID, err)
 	}
 
