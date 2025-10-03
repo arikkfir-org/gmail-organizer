@@ -145,6 +145,7 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to fetch messages for chunk %d: %w", chunkNumber, err)
 		}
+		wg := sync.WaitGroup{}
 		for _, msg := range messages {
 			if msg.Envelope != nil {
 				data := map[string]any{
@@ -163,16 +164,18 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 						"run-execution-id": j.runExecutionID,
 					},
 				})
-				go func(r *pubsub.PublishResult) {
+				wg.Go(func() {
 					if _, err := result.Get(ctx); err != nil {
 						slog.Warn("Failed to publish message to messages topic", "uid", msg.Uid, "err", err)
 						// TODO: consider retry publishing the message
 					}
-				}(result)
+				})
 			} else {
 				return fmt.Errorf("failed to fetch envelope of UID '%d'", msg.Uid)
 			}
 		}
+		slog.Info("Waiting for chunk messages to be published to Pub/Sub")
+		wg.Wait()
 	}
 
 	return nil
