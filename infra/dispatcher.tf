@@ -33,7 +33,7 @@ resource "google_cloud_run_v2_job" "dispatcher" {
   name                = "dispatcher"
   location            = var.region
   deletion_protection = false
-
+  launch_stage        = "BETA"
   template {
     template {
       service_account = google_service_account.dispatcher.email
