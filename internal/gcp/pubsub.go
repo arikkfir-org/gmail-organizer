@@ -55,7 +55,7 @@ func ReadPubSubMessage[T any](r io.Reader) (*Message[T], error) {
 			Attributes:  wrapper.Message.Attributes,
 		},
 	}
-	messageDecoder := json.NewDecoder(r)
+	messageDecoder := json.NewDecoder(strings.NewReader(wrapper.Message.Data))
 	if err := messageDecoder.Decode(&message.Message.Data); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON from data inside the Pub/Sub message: %w", err)
 	}
