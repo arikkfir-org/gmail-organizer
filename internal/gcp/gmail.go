@@ -83,7 +83,9 @@ func (g *Gmail) Close() {
 	for c := range g.conns {
 		if c != nil {
 			if err := c.Logout(); err != nil {
-				slog.Warn("Failed to logout from Gmail IMAP server (closing pool)", "err", err, "username", g.username)
+				if !strings.Contains(err.Error(), "Already logged out") {
+					slog.Warn("Failed to logout from Gmail IMAP server (closing pool)", "err", err, "username", g.username)
+				}
 			}
 		}
 	}
