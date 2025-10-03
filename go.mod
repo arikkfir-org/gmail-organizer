@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	cloud.google.com/go/pubsub v1.50.1
 	github.com/emersion/go-imap v1.2.1
+	github.com/google/go-cmp v0.7.0
 	github.com/lmittmann/tint v1.1.2
 	golang.org/x/oauth2 v0.31.0
 )

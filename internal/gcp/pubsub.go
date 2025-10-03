@@ -7,8 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"strings"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 type wrapperMessage struct {
@@ -99,7 +103,6 @@ func CreateSubscriptionIfMissing(ctx context.Context, c *pubsub.Client, id strin
 			return nil, fmt.Errorf("failed to get Pub/Sub subscription configuration: %w", err)
 		}
 
-		// TODO: configurations turns out to always be different
 		ignores := []cmp.Option{
 			cmpopts.IgnoreUnexported(pubsub.SubscriptionConfig{}, pubsub.Topic{}),
 			cmpopts.IgnoreFields(pubsub.SubscriptionConfig{}, "State", "TopicMessageRetentionDuration"),
