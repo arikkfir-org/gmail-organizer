@@ -32,12 +32,6 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		return nil, fmt.Errorf("PROCESSOR_ENDPOINT environment variable is required")
 	}
 
-	// Dispatcher service account email
-	dispatcherServiceAccountEmail := os.Getenv("DISPATCHER_SERVICE_ACCOUNT_EMAIL")
-	if dispatcherServiceAccountEmail == "" {
-		return nil, fmt.Errorf("DISPATCHER_SERVICE_ACCOUNT_EMAIL environment variable is required")
-	}
-
 	// Gmail account username
 	accountUsername := os.Getenv("SOURCE_ACCOUNT_USERNAME")
 	if accountUsername == "" {
@@ -68,6 +62,7 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		dispatcherServiceAccountEmail: dispatcherServiceAccountEmail,
 		accountUsername:               accountUsername,
 		accountPassword:               accountPassword,
+		dispatcherServiceAccountEmail: os.Getenv("DISPATCHER_SERVICE_ACCOUNT_EMAIL"),
 		jsonLogging:                   slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
 		pubSubClient:                  pubSubClient,
 	}, nil
@@ -171,25 +166,22 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 }
 
 func (j *DispatcherJob) createSubscription(ctx context.Context, topic, dlTopic *pubsub.Topic) (*pubsub.Subscription, error) {
+	pushConfig := pubsub.PushConfig{Endpoint: j.processorEndpoint}
+	if j.dispatcherServiceAccountEmail != "" {
+		pushConfig.AuthenticationMethod = &pubsub.OIDCToken{
+			ServiceAccountEmail: j.dispatcherServiceAccountEmail,
+		}
+	}
 	return j.createSub(ctx, fmt.Sprintf("messages-worker-%s", j.runExecutionID), pubsub.SubscriptionConfig{
-		Topic: topic,
-		PushConfig: pubsub.PushConfig{
-			Endpoint: j.processorEndpoint,
-			AuthenticationMethod: &pubsub.OIDCToken{
-				ServiceAccountEmail: j.dispatcherServiceAccountEmail,
-			},
-		},
-		AckDeadline:      60 * time.Second,
-		Labels:           map[string]string{"run-execution-id": j.runExecutionID},
-		ExpirationPolicy: 24 * time.Hour * 7,
-		DeadLetterPolicy: &pubsub.DeadLetterPolicy{
-			DeadLetterTopic:     dlTopic.String(),
-			MaxDeliveryAttempts: 100,
-		},
-		RetryPolicy: &pubsub.RetryPolicy{
-			MinimumBackoff: 10 * time.Second,
-			MaximumBackoff: 10 * time.Minute,
-		},
+		Topic:               topic,
+		PushConfig:          pushConfig,
+		AckDeadline:         60 * time.Second,
+		RetainAckedMessages: false,
+		RetentionDuration:   1 * time.Hour,
+		Labels:              map[string]string{"run-execution-id": j.runExecutionID},
+		ExpirationPolicy:    24 * time.Hour * 7,
+		DeadLetterPolicy:    &pubsub.DeadLetterPolicy{DeadLetterTopic: dlTopic.String(), MaxDeliveryAttempts: 100},
+		RetryPolicy:         &pubsub.RetryPolicy{MinimumBackoff: 10 * time.Second, MaximumBackoff: 10 * time.Minute},
 	})
 }
 
