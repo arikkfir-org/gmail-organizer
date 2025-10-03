@@ -15,7 +15,7 @@ func runJob() int {
 	defer cancelCtx()
 
 	// Create job
-	job, err := newDispatcherJob(ctx)
+	job, err := newDispatcherJob()
 	if err != nil {
 		slog.Error("Failed to initialize job", "err", err)
 		return 1
@@ -23,7 +23,22 @@ func runJob() int {
 	defer job.Close()
 
 	// Configure logging
-	util.ConfigureLogging(job.jsonLogging)
+	logLevel := slog.LevelInfo
+	if s, found := os.LookupEnv("LOG_LEVEL"); found {
+		switch s {
+		case "TRACE":
+			logLevel = -10
+		case "DEBUG":
+			logLevel = slog.LevelDebug
+		case "INFO":
+			logLevel = slog.LevelInfo
+		case "WARN":
+			logLevel = slog.LevelWarn
+		case "ERROR":
+			logLevel = slog.LevelError
+		}
+	}
+	util.ConfigureLogging(job.jsonLogging, logLevel)
 
 	// Run job
 	if err := job.Run(ctx); err != nil {

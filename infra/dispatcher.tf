@@ -1,23 +1,16 @@
 resource "google_service_account" "dispatcher" {
   account_id   = "dispatcher"
-  display_name = "Runs the dispatcher Cloud Run service."
+  display_name = "Runs the dispatcher Cloud Run job."
 }
 
 resource "google_project_iam_member" "dispatcher" {
   for_each = toset([
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
-    "roles/pubsub.admin",
   ])
   project = var.project_id
   role    = each.key
   member  = google_service_account.dispatcher.member
-}
-
-resource "google_service_account_iam_member" "dispatcher_actAs_self" {
-  service_account_id = google_service_account.dispatcher.id
-  role               = "roles/iam.serviceAccountUser"
-  member             = google_service_account.dispatcher.member
 }
 
 resource "google_service_account_iam_member" "gha_actAs_dispatcher" {
@@ -29,7 +22,6 @@ resource "google_service_account_iam_member" "gha_actAs_dispatcher" {
 resource "google_cloud_run_v2_job" "dispatcher" {
   depends_on = [
     google_project_service.pubsub,
-    google_project_iam_member.gcp_pubsub_publish,
     google_project_service.run,
     google_artifact_registry_repository_iam_member.dispatcher,
     google_project_iam_member.dispatcher,
@@ -56,14 +48,6 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           }
         }
         env {
-          name  = "PROCESSOR_ENDPOINT"
-          value = google_cloud_run_v2_service.worker.uri
-        }
-        env {
-          name  = "DISPATCHER_SERVICE_ACCOUNT_EMAIL"
-          value = google_service_account.dispatcher.email
-        }
-        env {
           name = "SOURCE_ACCOUNT_USERNAME"
           value_source {
             secret_key_ref {
@@ -77,6 +61,24 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           value_source {
             secret_key_ref {
               secret  = "sync_source_password"
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "TARGET_ACCOUNT_USERNAME"
+          value_source {
+            secret_key_ref {
+              secret  = "sync_target_username"
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "TARGET_ACCOUNT_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = "sync_target_password"
               version = "latest"
             }
           }

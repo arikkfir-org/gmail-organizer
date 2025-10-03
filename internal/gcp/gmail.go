@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ var (
 
 type Gmail struct {
 	getConnTimeout time.Duration
+	newConnMU      sync.Mutex
 	username       string
 	password       string
 	mu             sync.Mutex
@@ -31,12 +33,12 @@ type Gmail struct {
 	factory        func() (*client.Client, error)
 }
 
-func NewGmail(username, password string, getConnTimeout time.Duration) *Gmail {
-	return &Gmail{
+func NewGmail(username, password string, connLimit uint8, getConnTimeout time.Duration) (*Gmail, error) {
+	g := &Gmail{
 		getConnTimeout: getConnTimeout,
 		username:       username,
 		password:       password,
-		conns:          make(chan *client.Client, 10),
+		conns:          make(chan *client.Client, connLimit),
 		factory: func() (*client.Client, error) {
 			if c, err := client.DialTLS(gmailImapURL, nil); err != nil {
 				return nil, fmt.Errorf("failed to dial: %w", err)
@@ -47,41 +49,72 @@ func NewGmail(username, password string, getConnTimeout time.Duration) *Gmail {
 			}
 		},
 	}
-}
 
-func (g *Gmail) releaseIMAPConnection(c *client.Client) {
-	select {
-	case g.conns <- c:
-	default:
-		if err := c.Logout(); err != nil {
-			slog.Warn("Failed logging out of a IMAP connection due to full pool", "err", err, "username", g.username)
-		}
-	}
-}
-
-func (g *Gmail) getIMAPConnection() (*client.Client, func(), error) {
-	timer := time.NewTimer(g.getConnTimeout)
-	defer timer.Stop()
-	select {
-	case c := <-g.conns:
-		if err := c.Noop(); err != nil {
-			if err := c.Logout(); err != nil {
-				slog.Warn("Failed logging out of a bad IMAP connection", "err", err, "username", g.username)
+	slog.Info("Populating Gmail IMAP connection pool", "username", g.username, "size", connLimit)
+	var i uint8
+	for i = 0; i < connLimit; i++ {
+		go func(i uint8) {
+			if c, err := g.factory(); err != nil {
+				slog.Warn("Failed to create initial IMAP connection", "err", err, "username", g.username)
+			} else {
+				slog.Debug("Creating initial IMAP connection", "index", i, "username", g.username)
+				g.conns <- c
 			}
-			return g.getIMAPConnection()
-		}
-		return c, func() { g.releaseIMAPConnection(c) }, nil
-	case <-timer.C:
-		return nil, nil, fmt.Errorf("failed to get IMAP connection within timeout")
+		}(i)
 	}
+
+	return g, nil
 }
 
 func (g *Gmail) Close() {
 	close(g.conns)
 	for c := range g.conns {
-		if err := c.Logout(); err != nil {
-			slog.Warn("Failed to logout from Gmail IMAP server (closing pool)", "err", err, "username", g.username)
+		if c != nil {
+			if err := c.Logout(); err != nil {
+				slog.Warn("Failed to logout from Gmail IMAP server (closing pool)", "err", err, "username", g.username)
+			}
 		}
+	}
+}
+
+func (g *Gmail) releaseIMAPConnection(c *client.Client) {
+	slog.Debug("Releasing IMAP connection", "username", g.username)
+	g.conns <- c
+}
+
+func (g *Gmail) getIMAPConnection() (*client.Client, func(), error) {
+	timer := time.NewTimer(g.getConnTimeout)
+	defer timer.Stop()
+
+	select {
+	case c := <-g.conns:
+		// Should never happen, but just in case
+		if c == nil {
+			panic("ILLEGAL STATE: got nil IMAP connection from pool")
+		}
+
+		if err := c.Noop(); err != nil {
+
+			// Discard the bad connection
+			slog.Warn("Discarding bad IMAP connection", "err", err, "username", g.username)
+			if err := c.Logout(); err != nil {
+				slog.Warn("Failed logging out of a bad IMAP connection", "err", err, "username", g.username)
+			}
+
+			// Create a new one in place of the one we just discarded
+			if c, err := g.factory(); err != nil {
+				return nil, nil, fmt.Errorf("failed to create initial IMAP connections: %w", err)
+			} else {
+				return c, func() { g.releaseIMAPConnection(c) }, nil
+			}
+
+		} else {
+			// Good connection, return it
+			return c, func() { g.releaseIMAPConnection(c) }, nil
+		}
+	case <-timer.C:
+		// Timed out :(
+		return nil, nil, fmt.Errorf("failed to get IMAP connection within timeout")
 	}
 }
 
@@ -305,6 +338,70 @@ func (g *Gmail) UpdateMessage(mailbox string, msg *imap.Message) error {
 	}
 	if err := c.UidStore(seqSet, imap.FormatFlagsOp(imap.SetFlags, true), flagsAsAnyArray, nil); err != nil {
 		return fmt.Errorf("failed to update flags of target message '%d': %w", *uid, err)
+	}
+
+	return nil
+}
+
+func (g *Gmail) FetchMailboxNames(ignoreSystemLabels, ignoreUnselectables bool) ([]string, error) {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	imapMailBoxes := make(chan *imap.MailboxInfo, 100)
+	done := make(chan error, 1)
+	go func() {
+		done <- c.List("", "*", imapMailBoxes)
+	}()
+	var names []string
+	for m := range imapMailBoxes {
+		if ignoreSystemLabels {
+			if m.Name == "INBOX" {
+				continue
+			} else if strings.HasPrefix(m.Name, "[Gmail]") {
+				continue
+			} else if slices.Contains(m.Attributes, imap.AllAttr) {
+				continue
+			} else if slices.Contains(m.Attributes, imap.DraftsAttr) {
+				continue
+			} else if slices.Contains(m.Attributes, imap.JunkAttr) {
+				continue
+			} else if slices.Contains(m.Attributes, imap.TrashAttr) {
+				continue
+			} else if slices.Contains(m.Attributes, imap.ArchiveAttr) {
+				continue
+			} else if slices.Contains(m.Attributes, imap.SentAttr) {
+				continue
+			} else if slices.Contains(m.Attributes, imap.FlaggedAttr) {
+				continue
+			}
+		}
+		if ignoreUnselectables && slices.Contains(m.Attributes, imap.NoSelectAttr) {
+			continue
+		}
+		names = append(names, m.Name)
+	}
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("failed to fetch mailboxes names: %w", err)
+	}
+	return names, nil
+}
+
+func (g *Gmail) CreateMailboxes(names ...string) error {
+	c, release, err := g.getIMAPConnection()
+	if err != nil {
+		return fmt.Errorf("failed to get Gmail connection: %w", err)
+	}
+	defer release()
+
+	for _, name := range names {
+		if err := c.Create(name); err != nil {
+			if !strings.Contains(err.Error(), "Duplicate folder name") {
+				return fmt.Errorf("failed to create mailbox '%s': %w", name, err)
+			}
+		}
 	}
 
 	return nil

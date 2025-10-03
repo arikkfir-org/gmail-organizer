@@ -14,7 +14,7 @@
       </ENTRIES>
     </EXTENSION>
     <kind value="PACKAGE" />
-    <package value="github.com/arikkfir-org/gmail-organizer/cmd/dispatcher" />
+    <package value="github.com/arikkfir-org/gmail-organizer/cmd" />
     <directory value="$PROJECT_DIR$" />
     <filePath value="$PROJECT_DIR$" />
     <method v="2" />
