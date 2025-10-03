@@ -73,8 +73,8 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	}
 
 	return &WorkerApp{
-		sourceGmail:  gcp.NewGmail(sourceAccountUsername, sourceAccountPassword),
-		targetGmail:  gcp.NewGmail(targetAccountUsername, targetAccountPassword),
+		sourceGmail:  gcp.NewGmail(sourceAccountUsername, sourceAccountPassword, 10*time.Second),
+		targetGmail:  gcp.NewGmail(targetAccountUsername, targetAccountPassword, 10*time.Second),
 		jsonLogging:  slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
 		dryRun:       os.Getenv("DRY_RUN") != "" || slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("DRY_RUN")),
 		pubSubClient: pubSubClient,

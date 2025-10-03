@@ -73,7 +73,7 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		runExecutionID:                runExecutionID,
 		processorEndpoint:             processorEndpoint,
 		dispatcherServiceAccountEmail: os.Getenv("DISPATCHER_SERVICE_ACCOUNT_EMAIL"),
-		gmail:                         gcp.NewGmail(accountUsername, accountPassword),
+		gmail:                         gcp.NewGmail(accountUsername, accountPassword, 30*time.Minute),
 		jsonLogging:                   slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
 		maxEmailsToProcess:            maxEmailsToProcess,
 		pubSubClient:                  pubSubClient,

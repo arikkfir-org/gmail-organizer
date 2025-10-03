@@ -22,18 +22,20 @@ var (
 )
 
 type Gmail struct {
-	username string
-	password string
-	mu       sync.Mutex
-	conns    chan *client.Client
-	factory  func() (*client.Client, error)
+	getConnTimeout time.Duration
+	username       string
+	password       string
+	mu             sync.Mutex
+	conns          chan *client.Client
+	factory        func() (*client.Client, error)
 }
 
-func NewGmail(username, password string) *Gmail {
+func NewGmail(username, password string, getConnTimeout time.Duration) *Gmail {
 	return &Gmail{
-		username: username,
-		password: password,
-		conns:    make(chan *client.Client, 10),
+		getConnTimeout: getConnTimeout,
+		username:       username,
+		password:       password,
+		conns:          make(chan *client.Client, 10),
 		factory: func() (*client.Client, error) {
 			if c, err := client.DialTLS(gmailImapURL, nil); err != nil {
 				return nil, fmt.Errorf("failed to dial: %w", err)
@@ -57,6 +59,8 @@ func (g *Gmail) releaseIMAPConnection(c *client.Client) {
 }
 
 func (g *Gmail) getIMAPConnection() (*client.Client, func(), error) {
+	timer := time.NewTimer(g.getConnTimeout)
+	defer timer.Stop()
 	select {
 	case c := <-g.conns:
 		if err := c.Noop(); err != nil {
@@ -66,13 +70,8 @@ func (g *Gmail) getIMAPConnection() (*client.Client, func(), error) {
 			return g.getIMAPConnection()
 		}
 		return c, func() { g.releaseIMAPConnection(c) }, nil
-	default:
-		slog.Info("Connecting to Gmail IMAP server", "username", g.username)
-		c, err := g.factory()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create new connection: %w", err)
-		}
-		return c, func() { g.releaseIMAPConnection(c) }, nil
+	case <-timer.C:
+		return nil, nil, fmt.Errorf("failed to get IMAP connection within timeout")
 	}
 }
 
