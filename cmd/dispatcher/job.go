@@ -21,6 +21,16 @@ const (
 	batchSize = 500
 )
 
+type DispatcherJob struct {
+	runExecutionID                string
+	processorEndpoint             string
+	dispatcherServiceAccountEmail string
+	gmail                         *gcp.Gmail
+	jsonLogging                   bool
+	maxEmailsToProcess            uint64
+	pubSubClient                  *pubsub.Client
+}
+
 func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 
 	// Cloud Run job execution ID
@@ -78,16 +88,6 @@ func newDispatcherJob(ctx context.Context) (*DispatcherJob, error) {
 		maxEmailsToProcess:            maxEmailsToProcess,
 		pubSubClient:                  pubSubClient,
 	}, nil
-}
-
-type DispatcherJob struct {
-	runExecutionID                string
-	processorEndpoint             string
-	dispatcherServiceAccountEmail string
-	gmail                         *gcp.Gmail
-	jsonLogging                   bool
-	maxEmailsToProcess            uint64
-	pubSubClient                  *pubsub.Client
 }
 
 func (j *DispatcherJob) Close() {

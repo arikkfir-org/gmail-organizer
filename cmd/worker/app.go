@@ -24,6 +24,16 @@ type Message struct {
 	} `json:"envelope"`
 }
 
+type WorkerApp struct {
+	runExecutionID string
+	sourceGmail    *gcp.Gmail
+	targetGmail    *gcp.Gmail
+	jsonLogging    bool
+	dryRun         bool
+	pubSubClient   *pubsub.Client
+	port           uint16
+}
+
 func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 
 	// Source Gmail account username
@@ -80,16 +90,6 @@ func newWorkerApp(ctx context.Context) (*WorkerApp, error) {
 		pubSubClient: pubSubClient,
 		port:         port,
 	}, nil
-}
-
-type WorkerApp struct {
-	runExecutionID string
-	sourceGmail    *gcp.Gmail
-	targetGmail    *gcp.Gmail
-	jsonLogging    bool
-	dryRun         bool
-	pubSubClient   *pubsub.Client
-	port           uint16
 }
 
 func (a *WorkerApp) Close() {
