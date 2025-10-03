@@ -18,8 +18,8 @@ const (
 	batchSize                   = 500
 	messageMigrationConcurrency = 1000
 	messageMigrationWorkers     = 50
-	sourceGmailConnectionsLimit = 20
-	targetGmailConnectionsLimit = 20
+	sourceGmailConnectionsLimit = 15
+	targetGmailConnectionsLimit = 15
 )
 
 type migrationRequest struct {
