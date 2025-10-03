@@ -92,10 +92,6 @@ resource "google_cloud_run_v2_service" "worker" {
         name  = "JSON_LOGGING"
         value = "true"
       }
-      env {
-        name  = "DRY_RUN"
-        value = "true"
-      }
     }
   }
 }
