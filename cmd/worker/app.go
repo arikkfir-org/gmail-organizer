@@ -104,11 +104,30 @@ func (a *WorkerApp) Run(ctx context.Context) error {
 		},
 	}
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("worker server failed: %w", err)
-	}
+	httpServerErrCh := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			httpServerErrCh <- fmt.Errorf("worker server failed: %w", err)
+		} else {
+			httpServerErrCh <- nil
+		}
+	}()
 
-	return nil
+	select {
+	case <-ctx.Done():
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer shutdownCancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("Failed to shutdown HTTP server", "err", err)
+		}
+		return ctx.Err()
+	case err := <-httpServerErrCh:
+		if err != nil {
+			return fmt.Errorf("HTTP server failed: %w", err)
+		} else {
+			return nil
+		}
+	}
 }
 
 func (a *WorkerApp) HandleRequest(w http.ResponseWriter, r *http.Request) {
