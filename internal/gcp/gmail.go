@@ -112,7 +112,9 @@ func (g *Gmail) getIMAPConnection(ctx context.Context) (*client.Client, func(), 
 			// Discard the bad connection
 			slog.Warn("Discarding bad IMAP connection", "err", err, "username", g.username)
 			if err := c.Logout(); err != nil {
-				slog.Warn("Failed logging out of a bad IMAP connection", "err", err, "username", g.username)
+				if !strings.Contains(err.Error(), "Already logged out") {
+					slog.Warn("Failed logging out of a bad IMAP connection", "err", err, "username", g.username)
+				}
 			}
 
 			// Create a new one in place of the one we just discarded
