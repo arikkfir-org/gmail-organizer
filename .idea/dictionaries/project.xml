@@ -6,6 +6,7 @@
       <w>cloudresourcemanager</w>
       <w>gserviceaccount</w>
       <w>iamcredentials</w>
+      <w>unselectables</w>
     </words>
   </dictionary>
 </component>
