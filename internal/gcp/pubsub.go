@@ -63,13 +63,15 @@ func ReadPubSubMessage[T any](r io.Reader) (*Message[T], error) {
 	return message, nil
 }
 
-func CreateTopicIfMissing(ctx context.Context, c *pubsub.Client, topicID string) (*pubsub.Topic, error) {
-	topic := c.Topic(topicID)
+func CreateTopicIfMissing(ctx context.Context, c *pubsub.Client, id string) (*pubsub.Topic, error) {
+	slog.Info("Checking if Pub/Sub topic exists", "topic", id)
+	topic := c.Topic(id)
 	if exists, err := topic.Exists(ctx); err != nil {
-		return nil, fmt.Errorf("failed to check if Pub/Sub topic '%s' exists: %w", topicID, err)
+		return nil, fmt.Errorf("failed to check if Pub/Sub topic '%s' exists: %w", id, err)
 	} else if !exists {
-		if t, err := c.CreateTopic(ctx, topicID); err != nil {
-			return nil, fmt.Errorf("failed to create Pub/Sub topic '%s': %w", topicID, err)
+		slog.Info("Creating Pub/Sub topic", "topic", id)
+		if t, err := c.CreateTopic(ctx, id); err != nil {
+			return nil, fmt.Errorf("failed to create Pub/Sub topic '%s': %w", id, err)
 		} else {
 			return t, nil
 		}
@@ -79,10 +81,12 @@ func CreateTopicIfMissing(ctx context.Context, c *pubsub.Client, topicID string)
 }
 
 func CreateSubscriptionIfMissing(ctx context.Context, c *pubsub.Client, id string, cfg pubsub.SubscriptionConfig) (*pubsub.Subscription, error) {
+	slog.Info("Checking if Pub/Sub subscription exists", "subscription", id)
 	sub := c.Subscription(id)
 	if exists, err := sub.Exists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to check if Pub/Sub subscription exists: %w", err)
 	} else if !exists {
+		slog.Info("Creating Pub/Sub subscription", "subscription", id)
 		if s, err := c.CreateSubscription(ctx, id, cfg); err != nil {
 			return nil, fmt.Errorf("failed to create Pub/Sub subscription: %w", err)
 		} else {
