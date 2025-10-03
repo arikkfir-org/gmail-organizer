@@ -93,6 +93,37 @@ func CreateSubscriptionIfMissing(ctx context.Context, c *pubsub.Client, id strin
 			return s, nil
 		}
 	} else {
+		slog.Info("Verifying Pub/Sub subscription configuration", "subscription", id)
+		config, err := sub.Config(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Pub/Sub subscription configuration: %w", err)
+		}
+
+		// TODO: configurations turns out to always be different
+		ignores := []cmp.Option{
+			cmpopts.IgnoreUnexported(pubsub.SubscriptionConfig{}, pubsub.Topic{}),
+			cmpopts.IgnoreFields(pubsub.SubscriptionConfig{}, "State", "TopicMessageRetentionDuration"),
+		}
+		if !cmp.Equal(config, cfg, ignores...) {
+			diff := cmp.Diff(config, cfg, ignores...)
+			slog.Info("Updating Pub/Sub subscription configuration", "subscription", id, "diff", diff)
+			if _, err := sub.Update(ctx, pubsub.SubscriptionConfigToUpdate{
+				PushConfig:                &cfg.PushConfig,
+				BigQueryConfig:            &cfg.BigQueryConfig,
+				CloudStorageConfig:        &cfg.CloudStorageConfig,
+				AckDeadline:               cfg.AckDeadline,
+				RetainAckedMessages:       cfg.RetainAckedMessages,
+				RetentionDuration:         cfg.RetentionDuration,
+				ExpirationPolicy:          cfg.ExpirationPolicy,
+				DeadLetterPolicy:          cfg.DeadLetterPolicy,
+				Labels:                    cfg.Labels,
+				RetryPolicy:               cfg.RetryPolicy,
+				EnableExactlyOnceDelivery: cfg.EnableExactlyOnceDelivery,
+				MessageTransforms:         cfg.MessageTransforms,
+			}); err != nil {
+				return nil, fmt.Errorf("failed to update Pub/Sub subscription configuration: %w", err)
+			}
+		}
 		return sub, nil
 	}
 }

@@ -203,7 +203,9 @@ func (j *DispatcherJob) createSubscription(ctx context.Context, topic, dlTopic *
 
 func (j *DispatcherJob) createDeadLetterSubscription(ctx context.Context, topic *pubsub.Topic) (*pubsub.Subscription, error) {
 	return j.createSub(ctx, fmt.Sprintf("messages-worker-%s-dl", j.runExecutionID), pubsub.SubscriptionConfig{
-		Topic: topic,
+		Topic:             topic,
+		AckDeadline:       10 * time.Second,
+		RetentionDuration: 1 * time.Hour,
 		Labels: map[string]string{
 			"run-execution-id": j.runExecutionID,
 		},
