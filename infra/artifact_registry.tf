@@ -14,8 +14,8 @@ resource "google_artifact_registry_repository" "ghcr_proxy" {
   }
 }
 
-resource "google_artifact_registry_repository_iam_member" "dispatcher" {
+resource "google_artifact_registry_repository_iam_member" "worker" {
   repository = google_artifact_registry_repository.ghcr_proxy.id
   role       = "roles/artifactregistry.reader"
-  member     = google_service_account.dispatcher.member
+  member     = google_service_account.worker.member
 }

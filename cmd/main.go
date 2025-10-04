@@ -16,7 +16,7 @@ func runJob() int {
 	defer cancelCtx()
 
 	// Create job
-	job, err := newDispatcherJob()
+	job, err := newWorkerJob()
 	if err != nil {
 		slog.Error("Failed to initialize job", "err", err)
 		return 1
@@ -42,7 +42,7 @@ func runJob() int {
 	util.ConfigureLogging(job.jsonLogging, logLevel)
 
 	// Initialize OpenTelemetry for tracing and metrics
-	shutdown, err := otel.InitOtelProvider(ctx, "dispatcher")
+	shutdown, err := otel.InitOtelProvider(ctx, "worker")
 	if err != nil {
 		slog.Error("Failed to initialize OTel provider", "err", err)
 		return 1

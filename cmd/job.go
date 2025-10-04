@@ -29,7 +29,7 @@ type migrationRequest struct {
 	messageID      string
 }
 
-type DispatcherJob struct {
+type WorkerJob struct {
 	sourceGmail        *gcp.Gmail
 	targetGmail        *gcp.Gmail
 	reporter           *metrics.Reporter
@@ -39,7 +39,7 @@ type DispatcherJob struct {
 	messagesCh         chan *migrationRequest
 }
 
-func newDispatcherJob() (*DispatcherJob, error) {
+func newWorkerJob() (*WorkerJob, error) {
 
 	// Source Gmail account username
 	sourceAccountUsername := os.Getenv("SOURCE_ACCOUNT_USERNAME")
@@ -86,14 +86,14 @@ func newDispatcherJob() (*DispatcherJob, error) {
 		return nil, fmt.Errorf("failed to create target Gmail connection: %w", err)
 	}
 
-	reporter, err := metrics.NewReporter("dispatcher")
+	reporter, err := metrics.NewReporter("worker")
 	if err != nil {
 		go sourceGmail.Close()
 		go targetGmail.Close()
 		return nil, fmt.Errorf("failed to create metrics reporter: %w", err)
 	}
 
-	return &DispatcherJob{
+	return &WorkerJob{
 		sourceGmail:        sourceGmail,
 		targetGmail:        targetGmail,
 		reporter:           reporter,
@@ -104,13 +104,13 @@ func newDispatcherJob() (*DispatcherJob, error) {
 	}, nil
 }
 
-func (j *DispatcherJob) Close() {
+func (j *WorkerJob) Close() {
 	j.sourceGmail.Close()
 	j.targetGmail.Close()
 }
 
-func (j *DispatcherJob) Run(ctx context.Context) error {
-	tr := otel.Tracer("dispatcher")
+func (j *WorkerJob) Run(ctx context.Context) error {
+	tr := otel.Tracer("worker")
 	ctx, span := tr.Start(ctx, "Run")
 	defer span.End()
 
@@ -155,8 +155,8 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 	}
 }
 
-func (j *DispatcherJob) migrateMailboxes(ctx context.Context) error {
-	tr := otel.Tracer("dispatcher")
+func (j *WorkerJob) migrateMailboxes(ctx context.Context) error {
+	tr := otel.Tracer("worker")
 	ctx, span := tr.Start(ctx, "migrateMailboxes")
 	defer span.End()
 
@@ -186,8 +186,8 @@ func (j *DispatcherJob) migrateMailboxes(ctx context.Context) error {
 	return nil
 }
 
-func (j *DispatcherJob) collectMessagesForMigration(ctx context.Context) error {
-	tr := otel.Tracer("dispatcher")
+func (j *WorkerJob) collectMessagesForMigration(ctx context.Context) error {
+	tr := otel.Tracer("worker")
 	ctx, span := tr.Start(ctx, "collectMessagesForMigration")
 	defer span.End()
 
@@ -230,8 +230,8 @@ func (j *DispatcherJob) collectMessagesForMigration(ctx context.Context) error {
 	return nil
 }
 
-func (j *DispatcherJob) migrateMessages(ctx context.Context, worker int) error {
-	tr := otel.Tracer("dispatcher")
+func (j *WorkerJob) migrateMessages(ctx context.Context, worker int) error {
+	tr := otel.Tracer("worker")
 	ctx, span := tr.Start(ctx, fmt.Sprintf("migrateMessages(%d)", worker))
 	defer span.End()
 
@@ -251,8 +251,8 @@ func (j *DispatcherJob) migrateMessages(ctx context.Context, worker int) error {
 	}
 }
 
-func (j *DispatcherJob) migrateMessage(ctx context.Context, sourceGmailUID uint32, messageID string) error {
-	tr := otel.Tracer("dispatcher")
+func (j *WorkerJob) migrateMessage(ctx context.Context, sourceGmailUID uint32, messageID string) error {
+	tr := otel.Tracer("worker")
 	ctx, span := tr.Start(ctx, "migrateMessage")
 	defer span.End()
 
@@ -268,7 +268,7 @@ func (j *DispatcherJob) migrateMessage(ctx context.Context, sourceGmailUID uint3
 	return nil
 }
 
-func (j *DispatcherJob) appendNewMessageToTargetAccount(ctx context.Context, sourceGmailUID uint32) error {
+func (j *WorkerJob) appendNewMessageToTargetAccount(ctx context.Context, sourceGmailUID uint32) error {
 
 	// Fetch message
 	slog.Debug("Appending new message to target account", "sourceGmailUID", sourceGmailUID)
@@ -298,7 +298,7 @@ func (j *DispatcherJob) appendNewMessageToTargetAccount(ctx context.Context, sou
 	return nil
 }
 
-func (j *DispatcherJob) updateExistingMessageInTargetAccount(ctx context.Context, sourceGmailUID uint32, messageID string) error {
+func (j *WorkerJob) updateExistingMessageInTargetAccount(ctx context.Context, sourceGmailUID uint32, messageID string) error {
 
 	// Fetch message
 	slog.Debug("Updating message in target account", "sourceGmailUID", sourceGmailUID, "messageID", messageID)

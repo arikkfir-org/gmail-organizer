@@ -42,10 +42,10 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          target: dispatcher
+          target: worker
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: ghcr.io/${{ github.repository }}/dispatcher:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}/worker:${{ github.sha }}
 
   infra:
     name: Setup Infrastructure

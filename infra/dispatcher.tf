@@ -1,9 +1,9 @@
-resource "google_service_account" "dispatcher" {
-  account_id   = "dispatcher"
-  display_name = "Runs the dispatcher Cloud Run job."
+resource "google_service_account" "worker" {
+  account_id   = "worker"
+  display_name = "Runs the worker Cloud Run job."
 }
 
-resource "google_project_iam_member" "dispatcher" {
+resource "google_project_iam_member" "worker" {
   for_each = toset([
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
@@ -11,37 +11,37 @@ resource "google_project_iam_member" "dispatcher" {
   ])
   project = var.project_id
   role    = each.key
-  member  = google_service_account.dispatcher.member
+  member  = google_service_account.worker.member
 }
 
-resource "google_service_account_iam_member" "gha_actAs_dispatcher" {
-  service_account_id = google_service_account.dispatcher.id
+resource "google_service_account_iam_member" "gha_actAs_worker" {
+  service_account_id = google_service_account.worker.id
   role               = "roles/iam.serviceAccountUser"
   member             = google_service_account.gha.member
 }
 
-resource "google_cloud_run_v2_job" "dispatcher" {
+resource "google_cloud_run_v2_job" "worker" {
   depends_on = [
     google_project_service.pubsub,
     google_project_service.run,
-    google_artifact_registry_repository_iam_member.dispatcher,
-    google_project_iam_member.dispatcher,
-    google_service_account_iam_member.gha_actAs_dispatcher,
+    google_artifact_registry_repository_iam_member.worker,
+    google_project_iam_member.worker,
+    google_service_account_iam_member.gha_actAs_worker,
     google_secret_manager_secret.sync,
-    google_secret_manager_secret_iam_member.sync_dispatcher_access,
+    google_secret_manager_secret_iam_member.sync_worker_access,
     google_secret_manager_secret_version.sync_version,
   ]
-  name                = "dispatcher"
+  name                = "worker"
   location            = var.region
   deletion_protection = false
   launch_stage        = "BETA"
   template {
     template {
-      service_account = google_service_account.dispatcher.email
+      service_account = google_service_account.worker.email
       timeout         = "${60 * 60 * 24 * 6}s"
       max_retries     = 1
       containers {
-        image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/dispatcher:${var.image_tag}"
+        image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/worker:${var.image_tag}"
         resources {
           limits = {
             memory = "512Mi"

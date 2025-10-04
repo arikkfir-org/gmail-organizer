@@ -21,7 +21,7 @@ resource "google_secret_manager_secret" "sync" {
   }
 }
 
-resource "google_secret_manager_secret_iam_member" "sync_dispatcher_access" {
+resource "google_secret_manager_secret_iam_member" "sync_worker_access" {
   for_each = toset([
     "sync_source_username",
     "sync_source_password",
@@ -30,7 +30,7 @@ resource "google_secret_manager_secret_iam_member" "sync_dispatcher_access" {
   ])
   secret_id = google_secret_manager_secret.sync[each.key].id
   role      = "roles/secretmanager.secretAccessor"
-  member    = google_service_account.dispatcher.member
+  member    = google_service_account.worker.member
 }
 
 resource "google_secret_manager_secret_version" "sync_version" {

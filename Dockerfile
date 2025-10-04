@@ -7,11 +7,11 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o ./dispatcher ./cmd
+RUN go build -o ./worker ./cmd
 
-FROM gcr.io/distroless/base:nonroot@sha256:06c713c675e983c5aea030592b1d635954218d29c4db2f8ec66912da1b87e228 AS dispatcher
+FROM gcr.io/distroless/base:nonroot@sha256:06c713c675e983c5aea030592b1d635954218d29c4db2f8ec66912da1b87e228 AS worker
 WORKDIR /
-COPY --from=builder /app/dispatcher /usr/local/bin/dispatcher
+COPY --from=builder /app/worker /usr/local/bin/worker
 USER 65532:65532
 ENV GOTRACEBACK=single
-ENTRYPOINT ["/usr/local/bin/dispatcher"]
+ENTRYPOINT ["/usr/local/bin/worker"]
