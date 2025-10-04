@@ -58,13 +58,12 @@ func NewGmail(username, password string, connLimit uint8, getConnTimeout time.Du
 		},
 	}
 
-	slog.Info("Populating Gmail IMAP connection pool", "username", g.username, "size", connLimit)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	var i uint8
 	for i = 0; i < connLimit; i++ {
+		time.Sleep(time.Second)
 		go func(i uint8) {
 			if c, err := g.factory(ctx); err != nil {
 				slog.Warn("Failed to create initial IMAP connection", "err", err, "username", g.username)
