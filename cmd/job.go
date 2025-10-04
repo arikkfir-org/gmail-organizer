@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	batchSize                   = 5000
 	messageMigrationConcurrency = 5000
 	messageMigrationWorkers     = 500
 	sourceGmailConnectionsLimit = 15
 	targetGmailConnectionsLimit = 15
+	messageEnvelopeFetchBatchSize = 500
 )
 
 type migrationRequest struct {
@@ -184,7 +184,7 @@ func (j *DispatcherJob) collectMessagesForMigration(ctx context.Context) error {
 	slog.Info("Collected message set for migration", "size", len(allUIDs))
 
 	// Process in chunks to avoid fetching all UIDs at once
-	chunks := slices.Collect(slices.Chunk(allUIDs, batchSize))
+	chunks := slices.Collect(slices.Chunk(allUIDs, messageEnvelopeFetchBatchSize))
 	for chunkNumber, chunkUIDs := range chunks {
 		slog.Info("Migrating chunk", "chunkIndex", chunkNumber)
 		messages, err := j.sourceGmail.FetchByUIDs(ctx, gcp.GmailAllMailLabel, chunkUIDs, imap.FetchEnvelope)
