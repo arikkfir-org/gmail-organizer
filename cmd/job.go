@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/arikkfir-org/gmail-organizer/internal/gcp"
+	"github.com/arikkfir-org/gmail-organizer/internal/metrics"
 	"github.com/emersion/go-imap"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -30,6 +32,7 @@ type migrationRequest struct {
 type DispatcherJob struct {
 	sourceGmail        *gcp.Gmail
 	targetGmail        *gcp.Gmail
+	reporter           *metrics.Reporter
 	maxEmailsToProcess uint64
 	jsonLogging        bool
 	dryRun             bool
@@ -83,9 +86,17 @@ func newDispatcherJob() (*DispatcherJob, error) {
 		return nil, fmt.Errorf("failed to create target Gmail connection: %w", err)
 	}
 
+	reporter, err := metrics.NewReporter("dispatcher")
+	if err != nil {
+		go sourceGmail.Close()
+		go targetGmail.Close()
+		return nil, fmt.Errorf("failed to create metrics reporter: %w", err)
+	}
+
 	return &DispatcherJob{
 		sourceGmail:        sourceGmail,
 		targetGmail:        targetGmail,
+		reporter:           reporter,
 		maxEmailsToProcess: maxEmailsToProcess,
 		jsonLogging:        slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("JSON_LOGGING")),
 		dryRun:             os.Getenv("DRY_RUN") != "" || slices.Contains([]string{"t", "true", "y", "yes", "1", "ok", "on"}, os.Getenv("DRY_RUN")),
@@ -99,6 +110,10 @@ func (j *DispatcherJob) Close() {
 }
 
 func (j *DispatcherJob) Run(ctx context.Context) error {
+	tr := otel.Tracer("dispatcher")
+	ctx, span := tr.Start(ctx, "Run")
+	defer span.End()
+
 	if err := j.migrateMailboxes(ctx); err != nil {
 		return fmt.Errorf("failed to migrate mailboxes: %w", err)
 	}
@@ -110,9 +125,9 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 
 	migrationErrorCh := make(chan error, messageMigrationWorkers)
 	for i := 0; i < messageMigrationWorkers; i++ {
-		go func() {
-			migrationErrorCh <- j.migrateMessages(ctx)
-		}()
+		go func(worker int) {
+			migrationErrorCh <- j.migrateMessages(ctx, worker)
+		}(i)
 	}
 
 	done := 0
@@ -141,6 +156,10 @@ func (j *DispatcherJob) Run(ctx context.Context) error {
 }
 
 func (j *DispatcherJob) migrateMailboxes(ctx context.Context) error {
+	tr := otel.Tracer("dispatcher")
+	ctx, span := tr.Start(ctx, "migrateMailboxes")
+	defer span.End()
+
 	slog.Info("Fetching source mailbox names")
 	sourceMailboxNames, err := j.sourceGmail.FetchMailboxNames(ctx, true, false)
 	if err != nil {
@@ -168,6 +187,10 @@ func (j *DispatcherJob) migrateMailboxes(ctx context.Context) error {
 }
 
 func (j *DispatcherJob) collectMessagesForMigration(ctx context.Context) error {
+	tr := otel.Tracer("dispatcher")
+	ctx, span := tr.Start(ctx, "collectMessagesForMigration")
+	defer span.End()
+
 	// Iterate messages one by one and fetch
 	slog.Info("Fetching messages for migration")
 	allUIDs, err := j.sourceGmail.FindAllUIDs(ctx, gcp.GmailAllMailLabel)
@@ -207,7 +230,11 @@ func (j *DispatcherJob) collectMessagesForMigration(ctx context.Context) error {
 	return nil
 }
 
-func (j *DispatcherJob) migrateMessages(ctx context.Context) error {
+func (j *DispatcherJob) migrateMessages(ctx context.Context, worker int) error {
+	tr := otel.Tracer("dispatcher")
+	ctx, span := tr.Start(ctx, fmt.Sprintf("migrateMessages(%d)", worker))
+	defer span.End()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -225,6 +252,10 @@ func (j *DispatcherJob) migrateMessages(ctx context.Context) error {
 }
 
 func (j *DispatcherJob) migrateMessage(ctx context.Context, sourceGmailUID uint32, messageID string) error {
+	tr := otel.Tracer("dispatcher")
+	ctx, span := tr.Start(ctx, "migrateMessage")
+	defer span.End()
+
 	if uid, err := j.targetGmail.FindUIDByMessageID(ctx, gcp.GmailAllMailLabel, messageID); err != nil {
 		return fmt.Errorf("failed to search for message '%s' in target account: %w", messageID, err)
 	} else if uid == nil {
@@ -243,6 +274,7 @@ func (j *DispatcherJob) appendNewMessageToTargetAccount(ctx context.Context, sou
 	slog.Debug("Appending new message to target account", "sourceGmailUID", sourceGmailUID)
 	msg, err := j.sourceGmail.FetchMessageByUID(ctx, gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, imap.FetchRFC822, gcp.GmailLabelsExt)
 	if err != nil {
+		j.reporter.Increment(ctx, "failed.appended.emails")
 		return fmt.Errorf("failed to fetch message '%d' from source account: %w", sourceGmailUID, err)
 	}
 
@@ -258,8 +290,10 @@ func (j *DispatcherJob) appendNewMessageToTargetAccount(ctx context.Context, sou
 			"body", msg.Body,
 			"items", msg.Items)
 	} else if _, err := j.targetGmail.AppendMessage(ctx, gcp.GmailAllMailLabel, msg); err != nil {
+		j.reporter.Increment(ctx, "failed.appended.emails")
 		return fmt.Errorf("failed to append message %d to target: %w", sourceGmailUID, err)
 	}
+	j.reporter.Increment(ctx, "appended.emails")
 
 	return nil
 }
@@ -270,6 +304,7 @@ func (j *DispatcherJob) updateExistingMessageInTargetAccount(ctx context.Context
 	slog.Debug("Updating message in target account", "sourceGmailUID", sourceGmailUID, "messageID", messageID)
 	sourceMsg, err := j.sourceGmail.FetchMessageByUID(ctx, gcp.GmailAllMailLabel, sourceGmailUID, imap.FetchFlags, imap.FetchInternalDate, imap.FetchEnvelope, gcp.GmailLabelsExt)
 	if err != nil {
+		j.reporter.Increment(ctx, "failed.updated.emails")
 		return fmt.Errorf("failed to fetch message '%d' from source account: %w", sourceGmailUID, err)
 	}
 
@@ -284,8 +319,10 @@ func (j *DispatcherJob) updateExistingMessageInTargetAccount(ctx context.Context
 			"body", sourceMsg.Body,
 			"items", sourceMsg.Items)
 	} else if err := j.targetGmail.UpdateMessage(ctx, gcp.GmailAllMailLabel, sourceMsg); err != nil {
+		j.reporter.Increment(ctx, "failed.updated.emails")
 		return fmt.Errorf("failed to update message '%s' in target account: %w", messageID, err)
 	}
+	j.reporter.Increment(ctx, "updated.emails")
 
 	return nil
 }

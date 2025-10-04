@@ -7,6 +7,7 @@ resource "google_project_iam_member" "dispatcher" {
   for_each = toset([
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
+    "roles/cloudtrace.agent",
   ])
   project = var.project_id
   role    = each.key
@@ -86,6 +87,24 @@ resource "google_cloud_run_v2_job" "dispatcher" {
         env {
           name  = "JSON_LOGGING"
           value = "true"
+        }
+        env {
+          name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+          value = "http://localhost:4317"
+        }
+      }
+      containers {
+        name  = "otel-collector"
+        image = "gcr.io/google-cloud-ops-agents/opentelemetry-collector:latest"
+        command = [
+          "/otelcol",
+          "--config=--set=exporters.googlecloud.project.id=${var.project_id}",
+        ]
+        resources {
+          limits = {
+            memory = "512Mi"
+            cpu    = 1
+          }
         }
       }
     }

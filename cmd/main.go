@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/arikkfir-org/gmail-organizer/internal/otel"
 	"github.com/arikkfir-org/gmail-organizer/internal/util"
 )
 
@@ -39,6 +40,14 @@ func runJob() int {
 		}
 	}
 	util.ConfigureLogging(job.jsonLogging, logLevel)
+
+	// Initialize OpenTelemetry for tracing and metrics
+	shutdown, err := otel.InitOtelProvider(ctx, "dispatcher")
+	if err != nil {
+		slog.Error("Failed to initialize OTel provider", "err", err)
+		return 1
+	}
+	defer shutdown()
 
 	// Run job
 	if err := job.Run(ctx); err != nil {
