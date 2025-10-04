@@ -92,6 +92,14 @@ resource "google_cloud_run_v2_job" "dispatcher" {
           name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
           value = "http://localhost:4317"
         }
+        env {
+          name  = "MAX_EMAILS"
+          value = "9999999"
+        }
+        env {
+          name  = "LOG_LEVEL"
+          value = "info"
+        }
       }
       containers {
         name  = "otel-collector"
