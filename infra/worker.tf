@@ -103,15 +103,22 @@ resource "google_cloud_run_v2_job" "worker" {
       }
       containers {
         name  = "otel-collector"
-        image = "gcr.io/google-cloud-ops-agents/opentelemetry-collector:latest"
-        command = [
-          "/otelcol",
-          "--config=--set=exporters.googlecloud.project.id=${var.project_id}",
-        ]
+        image = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.135.0"
+        args  = ["--config=/etc/otelcol-google/config.yaml"]
         resources {
           limits = {
             memory = "512Mi"
             cpu    = 1
+          }
+        }
+        startup_probe {
+          initial_delay_seconds = 5
+          period_seconds        = 10
+          failure_threshold     = 3
+          timeout_seconds       = 5
+          http_get {
+            port = 13133
+            path = "/"
           }
         }
       }
