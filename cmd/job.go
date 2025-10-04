@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	messageMigrationConcurrency = 5000
-	messageMigrationWorkers     = 500
-	sourceGmailConnectionsLimit = 15
-	targetGmailConnectionsLimit = 15
+	messageMigrationConcurrency   = 5000
+	messageMigrationWorkers       = 10
+	sourceGmailConnectionsLimit   = 15
+	targetGmailConnectionsLimit   = 15
 	messageEnvelopeFetchBatchSize = 500
 )
 
