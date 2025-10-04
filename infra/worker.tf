@@ -50,8 +50,8 @@ resource "google_cloud_run_v2_job" "worker" {
         image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/worker:${var.image_tag}"
         resources {
           limits = {
-            memory = "512Mi"
-            cpu    = 1
+            memory = "2Gi"
+            cpu    = 2
           }
         }
         env {
