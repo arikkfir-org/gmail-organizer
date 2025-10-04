@@ -20,6 +20,12 @@ resource "google_service_account_iam_member" "gha_actAs_worker" {
   member             = google_service_account.gha.member
 }
 
+resource "google_service_account_iam_member" "worker_actAs_worker" {
+  service_account_id = google_service_account.worker.id
+  role               = "roles/iam.serviceAccountUser"
+  member             = google_service_account.worker.member
+}
+
 resource "google_cloud_run_v2_job" "worker" {
   depends_on = [
     google_project_service.pubsub,
