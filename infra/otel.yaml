@@ -2,14 +2,14 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: localhost:4317
       http:
         cors:
           # noinspection HttpUrlsUsage
           allowed_origins:
             - http://*
             - https://*
-        endpoint: 0.0.0.0:4318
+        endpoint: localhost:4318
 
 processors:
   batch:
@@ -58,6 +58,15 @@ service:
   extensions:
     - health_check
   pipelines:
+    logs:
+      receivers:
+        - otlp
+      processors:
+        - resourcedetection
+        - memory_limiter
+        - batch
+      exporters:
+        - googlecloud
     metrics/otlp:
       receivers:
         - otlp
@@ -78,4 +87,13 @@ service:
         - batch
       exporters:
         - googlecloud
-#        - debug
+  telemetry:
+    logs:
+      encoding: json
+    metrics:
+      readers:
+        - periodic:
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: localhost:4317

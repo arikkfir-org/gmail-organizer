@@ -87,8 +87,8 @@ resource "google_cloud_run_v2_job" "worker" {
         image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/worker:${var.image_tag}"
         resources {
           limits = {
-            memory = "2Gi"
-            cpu    = 2
+            memory = "512Mi"
+            cpu    = 1
           }
         }
         env {
@@ -147,14 +147,7 @@ resource "google_cloud_run_v2_job" "worker" {
       containers {
         name  = "otel-collector"
         image = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.135.0"
-        args = [
-          "--config=/etc/otelcol-google/config.yaml",
-          "--set=service.telemetry.logs.encoding=json",
-        ]
-        ports {
-          container_port = 4317
-          name           = "http1"
-        }
+        args  = ["--config=/etc/otel/otel.yaml"]
         resources {
           limits = {
             memory = "512Mi"
@@ -163,7 +156,7 @@ resource "google_cloud_run_v2_job" "worker" {
         }
         startup_probe {
           initial_delay_seconds = 15
-          period_seconds        = 5
+          period_seconds        = 15
           timeout_seconds       = 15
           failure_threshold     = 3
           http_get {
@@ -172,7 +165,7 @@ resource "google_cloud_run_v2_job" "worker" {
           }
         }
         volume_mounts {
-          mount_path = "/etc/otelcol-google"
+          mount_path = "/etc/otel"
           name       = "otel-config"
         }
       }
