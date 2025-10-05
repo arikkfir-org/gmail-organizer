@@ -90,10 +90,3 @@ service:
   telemetry:
     logs:
       encoding: json
-    metrics:
-      readers:
-        - periodic:
-            exporter:
-              otlp:
-                protocol: grpc
-                endpoint: localhost:4317
