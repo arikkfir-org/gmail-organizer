@@ -153,7 +153,7 @@ resource "google_cloud_run_v2_job" "worker" {
         ]
         ports {
           container_port = 4317
-          name           = "otlp-grpc"
+          name           = "http1"
         }
         resources {
           limits = {
