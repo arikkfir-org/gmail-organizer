@@ -4,8 +4,11 @@
       <w>bodystructure</w>
       <w>buildx</w>
       <w>cloudresourcemanager</w>
+      <w>googlecloud</w>
+      <w>googlemanagedprometheus</w>
       <w>gserviceaccount</w>
       <w>iamcredentials</w>
+      <w>resourcedetection</w>
       <w>unselectables</w>
     </words>
   </dictionary>
