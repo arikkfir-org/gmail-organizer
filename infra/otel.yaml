@@ -44,6 +44,7 @@ processors:
           - delete_key(attributes, "project_id")
 
 exporters:
+  #  debug:
   googlecloud:
     log:
       default_log_name: opentelemetry-collector
@@ -67,6 +68,7 @@ service:
         - batch
       exporters:
         - googlemanagedprometheus
+    #        - debug
     traces:
       receivers:
         - otlp
