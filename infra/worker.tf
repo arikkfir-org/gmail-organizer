@@ -147,7 +147,7 @@ resource "google_cloud_run_v2_job" "worker" {
       containers {
         name  = "otel-collector"
         image = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.135.0"
-        args  = ["--config=/etc/otel/otel.yaml"]
+        args  = ["--config=/etc/otel/config.yaml"]
         resources {
           limits = {
             memory = "512Mi"
