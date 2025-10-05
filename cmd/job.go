@@ -235,6 +235,7 @@ func (j *WorkerJob) migrateMessages(ctx context.Context, worker int) error {
 	ctx, span := tr.Start(ctx, fmt.Sprintf("migrateMessages(%d)", worker))
 	defer span.End()
 
+	ticker := time.NewTicker(10 * time.Second)
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,6 +248,9 @@ func (j *WorkerJob) migrateMessages(ctx context.Context, worker int) error {
 			} else if err := j.migrateMessage(ctx, r.sourceGmailUID, r.messageID); err != nil {
 				return fmt.Errorf("failed to migrate message '%s' (%d): %w", r.messageID, r.sourceGmailUID, err)
 			}
+			ticker.Reset(10 * time.Second)
+		case <-ticker.C:
+			slog.Info("Worker idle for 10sec...")
 		}
 	}
 }
