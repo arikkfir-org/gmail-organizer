@@ -2,7 +2,7 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: localhost:4317
+        endpoint: 0.0.0.0:4317
       http:
         cors:
           # noinspection HttpUrlsUsage
@@ -76,11 +76,4 @@ service:
         - batch
       exporters:
         - googlecloud
-  telemetry:
-    metrics:
-      readers:
-        - periodic:
-            exporter:
-              otlp:
-                protocol: grpc
-                endpoint: localhost:4317
+#        - debug
