@@ -26,6 +26,31 @@ resource "google_service_account_iam_member" "worker_actAs_worker" {
   member             = google_service_account.worker.member
 }
 
+resource "google_secret_manager_secret" "otel_config" {
+  depends_on = [google_project_service.secretmanager]
+  secret_id  = "otel-config"
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+}
+
+resource "google_secret_manager_secret_iam_member" "otel_config_worker_access" {
+  secret_id = google_secret_manager_secret.otel_config.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.worker.member
+}
+
+resource "google_secret_manager_secret_version" "otel_config" {
+  secret                 = google_secret_manager_secret.otel_config.id
+  secret_data_wo_version = var.sync_secrets_version
+  secret_data_wo         = file("./otel.yaml")
+  deletion_policy        = "DISABLE"
+}
+
 resource "google_cloud_run_v2_job" "worker" {
   depends_on = [
     google_project_service.pubsub,
@@ -36,6 +61,7 @@ resource "google_cloud_run_v2_job" "worker" {
     google_secret_manager_secret.sync,
     google_secret_manager_secret_iam_member.sync_worker_access,
     google_secret_manager_secret_version.sync_version,
+    google_secret_manager_secret_version.otel_config,
   ]
   name                = "worker"
   location            = var.region
@@ -46,6 +72,17 @@ resource "google_cloud_run_v2_job" "worker" {
       service_account = google_service_account.worker.email
       timeout         = "${60 * 60 * 24 * 6}s"
       max_retries     = 1
+      volumes {
+        name = "otel-config"
+        secret {
+          secret       = google_secret_manager_secret.otel_config.secret_id
+          default_mode = 292 # 0444
+          items {
+            path    = "config.yaml"
+            version = "latest"
+          }
+        }
+      }
       containers {
         image = "${google_artifact_registry_repository.ghcr_proxy.registry_uri}/arikkfir-org/gmail-organizer/worker:${var.image_tag}"
         resources {
@@ -114,6 +151,10 @@ resource "google_cloud_run_v2_job" "worker" {
           "--config=/etc/otelcol-google/config.yaml",
           "--set=service.telemetry.logs.encoding=json",
         ]
+        ports {
+          container_port = 4317
+          name           = "otlp-grpc"
+        }
         resources {
           limits = {
             memory = "512Mi"
@@ -129,6 +170,10 @@ resource "google_cloud_run_v2_job" "worker" {
             port = 13133
             path = "/"
           }
+        }
+        volume_mounts {
+          mount_path = "/etc/otelcol-google"
+          name       = "otel-config"
         }
       }
     }
