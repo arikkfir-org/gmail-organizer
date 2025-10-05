@@ -239,14 +239,20 @@ func (j *WorkerJob) migrateMessages(ctx context.Context, worker int) error {
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Warn("Worker done due to context being done", "worker", worker)
 			return ctx.Err()
 		case r, more := <-j.messagesCh:
 			if !more {
+				slog.Info("Worker done, no more messages (channel closed)", "worker", worker)
 				return nil
 			} else if r == nil {
+				slog.Info("Worker done, no more messages (received nil message)", "worker", worker)
 				return nil
-			} else if err := j.migrateMessage(ctx, r.sourceGmailUID, r.messageID); err != nil {
-				return fmt.Errorf("failed to migrate message '%s' (%d): %w", r.messageID, r.sourceGmailUID, err)
+			} else {
+				slog.Debug("Migrating message", "worker", worker, "more", more, "messageID", r.messageID)
+				if err := j.migrateMessage(ctx, r.sourceGmailUID, r.messageID); err != nil {
+					return fmt.Errorf("failed to migrate message '%s' (%d): %w", r.messageID, r.sourceGmailUID, err)
+				}
 			}
 			ticker.Reset(10 * time.Second)
 		case <-ticker.C:
