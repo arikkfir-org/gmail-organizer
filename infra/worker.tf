@@ -162,9 +162,9 @@ resource "google_cloud_run_v2_job" "worker" {
           }
         }
         startup_probe {
-          initial_delay_seconds = 30
-          period_seconds        = 30
-          timeout_seconds       = 30
+          initial_delay_seconds = 15
+          period_seconds        = 5
+          timeout_seconds       = 15
           failure_threshold     = 3
           http_get {
             port = 13133
