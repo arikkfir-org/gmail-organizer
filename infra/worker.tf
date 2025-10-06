@@ -45,10 +45,9 @@ resource "google_secret_manager_secret_iam_member" "otel_config_worker_access" {
 }
 
 resource "google_secret_manager_secret_version" "otel_config" {
-  secret                 = google_secret_manager_secret.otel_config.id
-  secret_data_wo_version = var.sync_secrets_version
-  secret_data_wo         = file("./otel.yaml")
-  deletion_policy        = "DISABLE"
+  secret          = google_secret_manager_secret.otel_config.id
+  secret_data     = file("./otel.yaml")
+  deletion_policy = "DISABLE"
 }
 
 resource "google_cloud_run_v2_job" "worker" {
