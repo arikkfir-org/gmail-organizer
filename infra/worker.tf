@@ -70,7 +70,7 @@ resource "google_cloud_run_v2_job" "worker" {
     template {
       service_account = google_service_account.worker.email
       timeout         = "${60 * 60 * 24 * 6}s"
-      max_retries     = 1
+      max_retries     = 0
       volumes {
         name = "otel-config"
         secret {
