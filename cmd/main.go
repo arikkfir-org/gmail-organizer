@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/arikkfir-org/gmail-organizer/internal/otel"
 	"github.com/arikkfir-org/gmail-organizer/internal/util"
@@ -26,7 +27,7 @@ func runJob() int {
 	// Configure logging
 	logLevel := slog.LevelInfo
 	if s, found := os.LookupEnv("LOG_LEVEL"); found {
-		switch s {
+		switch strings.ToUpper(s) {
 		case "TRACE":
 			logLevel = -10
 		case "DEBUG":
