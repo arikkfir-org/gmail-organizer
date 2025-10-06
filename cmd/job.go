@@ -114,9 +114,6 @@ func (j *WorkerJob) Run(ctx context.Context) error {
 	ctx, span := tr.Start(ctx, "Run")
 	defer span.End()
 
-	slog.Warn("SLEEPING TO TEST JOB...")
-	time.Sleep(10 * time.Minute)
-
 	if err := j.migrateMailboxes(ctx); err != nil {
 		return fmt.Errorf("failed to migrate mailboxes: %w", err)
 	}
