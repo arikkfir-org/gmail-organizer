@@ -2,14 +2,14 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: localhost:4317
+        endpoint: 0.0.0.0:4317
       http:
         cors:
           # noinspection HttpUrlsUsage
           allowed_origins:
             - http://*
             - https://*
-        endpoint: localhost:4318
+        endpoint: 0.0.0.0:4318
 
 processors:
   batch:
@@ -44,10 +44,7 @@ processors:
           - delete_key(attributes, "project_id")
 
 exporters:
-  #  debug:
   googlecloud:
-    log:
-      default_log_name: opentelemetry-collector
   googlemanagedprometheus:
 
 extensions:
@@ -58,15 +55,6 @@ service:
   extensions:
     - health_check
   pipelines:
-    logs:
-      receivers:
-        - otlp
-      processors:
-        - resourcedetection
-        - memory_limiter
-        - batch
-      exporters:
-        - googlecloud
     metrics/otlp:
       receivers:
         - otlp
@@ -77,7 +65,6 @@ service:
         - batch
       exporters:
         - googlemanagedprometheus
-    #        - debug
     traces:
       receivers:
         - otlp
