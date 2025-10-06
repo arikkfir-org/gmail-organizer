@@ -228,7 +228,6 @@ func (j *WorkerJob) collectMessagesForMigration(ctx context.Context) error {
 		}
 	}
 
-	j.messagesCh <- nil
 	close(j.messagesCh)
 	return nil
 }
