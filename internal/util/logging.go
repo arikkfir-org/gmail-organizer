@@ -34,6 +34,7 @@ func ConfigureLogging(jsonLogging bool, logLevel slog.Level) {
 					return a
 				},
 			})))
+		slog.Info("Logging configured", "mode", "json", "level", logLevel)
 	} else {
 		slog.SetDefault(slog.New(
 			tint.NewHandler(os.Stderr, &tint.Options{
@@ -52,5 +53,6 @@ func ConfigureLogging(jsonLogging bool, logLevel slog.Level) {
 				TimeFormat: "15:04:05",
 			}),
 		))
+		slog.Info("Logging configured", "mode", "text", "level", logLevel)
 	}
 }
