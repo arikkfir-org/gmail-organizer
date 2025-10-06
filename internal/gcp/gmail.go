@@ -214,10 +214,11 @@ func (g *Gmail) FindUIDByMessageID(ctx context.Context, mailbox string, messageI
 				return nil, fmt.Errorf("failed to search for message by Message-ID: %w", err)
 			} else if len(uids) == 0 {
 				return nil, nil
-			} else if len(uids) == 1 {
-				return &uids[0], nil
 			} else {
-				return nil, fmt.Errorf("found multiple UIDs for Message-ID '%s'", messageID)
+				if len(uids) > 1 {
+					slog.Warn("Found multiple UIDs for Message-ID", "messageID", messageID, "uids", uids)
+				}
+				return &uids[0], nil
 			}
 		},
 		backoff.WithBackOff(backoff.NewExponentialBackOff()),
