@@ -28,6 +28,8 @@ processors:
 
 exporters:
   googlecloud:
+    sending_queue:
+      enabled: true
   googlemanagedprometheus:
 
 extensions:
