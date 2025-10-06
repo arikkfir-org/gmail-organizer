@@ -13,9 +13,9 @@ receivers:
 
 processors:
   batch:
-    send_batch_max_size: 200
-    send_batch_size: 200
-    timeout: 5s
+    send_batch_max_size: 50
+    send_batch_size: 50
+    timeout: 2s
 
   memory_limiter:
     check_interval: 1s
@@ -25,23 +25,6 @@ processors:
   resourcedetection:
     detectors: [ gcp ]
     timeout: 10s
-
-  transform/collision:
-    metric_statements:
-      - context: datapoint
-        statements:
-          - set(datapoint.attributes["exported_location"], datapoint.attributes["location"])
-          - delete_key(datapoint.attributes, "location")
-          - set(datapoint.attributes["exported_cluster"], datapoint.attributes["cluster"])
-          - delete_key(datapoint.attributes, "cluster")
-          - set(datapoint.attributes["exported_namespace"], datapoint.attributes["namespace"])
-          - delete_key(datapoint.attributes, "namespace")
-          - set(datapoint.attributes["exported_job"], datapoint.attributes["job"])
-          - delete_key(datapoint.attributes, "job")
-          - set(datapoint.attributes["exported_instance"], datapoint.attributes["instance"])
-          - delete_key(datapoint.attributes, "instance")
-          - set(datapoint.attributes["exported_project_id"], datapoint.attributes["project_id"])
-          - delete_key(datapoint.attributes, "project_id")
 
 exporters:
   googlecloud:
@@ -60,11 +43,10 @@ service:
         - otlp
       processors:
         - resourcedetection
-        - transform/collision
         - memory_limiter
         - batch
       exporters:
-        - googlemanagedprometheus
+        - googlecloud
     traces:
       receivers:
         - otlp
